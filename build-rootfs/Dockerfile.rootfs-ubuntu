@@ -1,0 +1,61 @@
+# build-rootfs/Dockerfile.rootfs-ubuntu
+#
+# Builds a MINIMAL Podroid guest rootfs as squashfs from Ubuntu (24.04 noble)
+# arm64. Same initramfs/OpenRC boot pipeline as the Kali image — no systemd,
+# no desktop, just ssh + podman container runtime + the Podroid bridge agents.
+#
+# Consumed by poroid-apk as `ubuntu-rootfs.squashfs`.
+
+# ── Stage 1: cross-compile podroid-* C agents (musl-static aarch64) ──────────
+FROM --platform=linux/arm64 alpine:3.24 AS vsock-builder
+RUN apk add --no-cache musl-dev gcc make linux-headers
+WORKDIR /work
+COPY vsock-agent /work/vsock-agent
+RUN cd /work/vsock-agent && make CC=gcc
+COPY host-bridge /work/host-bridge
+RUN cd /work/host-bridge && make CC=gcc
+COPY overlay-normalize /work/overlay-normalize
+RUN cd /work/overlay-normalize && make CC=gcc
+
+# ── Stage 2: build the Ubuntu rootfs squashfs ────────────────────────────────
+FROM --platform=linux/arm64 ubuntu:24.04 AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Tooling needed to build the squashfs (host-agnostic: runs under qemu-arm64).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      squashfs-tools \
+      xz-utils \
+      openssl \
+      libcap2-bin \
+      rsync \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+
+# Pull in the podroid-* C agents built in stage 1 (directly into the rootfs).
+COPY --from=vsock-builder /work/vsock-agent/podroid-vsock-agent /usr/local/bin/podroid-vsock-agent
+COPY --from=vsock-builder /work/host-bridge/podroid-hostd /usr/local/bin/podroid-hostd
+COPY --from=vsock-builder /work/overlay-normalize/podroid-overlay-normalize /usr/local/bin/podroid-overlay-normalize
+RUN chmod +x /usr/local/bin/podroid-vsock-agent /usr/local/bin/podroid-hostd \
+             /usr/local/bin/podroid-overlay-normalize
+
+ARG SYSTEM_VERSION=0
+ENV SYSTEM_VERSION=${SYSTEM_VERSION}
+
+# 1. Install packages + configure rootfs (runs in the container root /)
+COPY files /work/files
+COPY build-rootfs-minimal.sh /work/build-rootfs-minimal.sh
+RUN chmod +x /work/build-rootfs-minimal.sh && DISTRO=ubuntu /work/build-rootfs-minimal.sh
+
+# 2. rsync the installed system to /work/rootfs (done by build-rootfs-minimal.sh above)
+# 3. Squash the clean rootfs directory (not the container root /)
+RUN mksquashfs /work/rootfs /work/ubuntu-rootfs.squashfs \
+    -comp zstd -Xcompression-level 19 -all-root -noappend \
+    -e /proc /sys /dev /run /tmp /var/tmp /work \
+       /var/lib/apt/lists /var/cache/apt /var/cache/apt/archives /var/log \
+       /usr/share/man /usr/share/doc /usr/share/locale /usr/share/info
+
+FROM scratch AS export
+COPY --from=builder /work/ubuntu-rootfs.squashfs /ubuntu-rootfs.squashfs

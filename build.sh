@@ -1,8 +1,9 @@
 #!/bin/bash
 # Podroid guest system builder — produces initrd.img (Alpine initramfs) and
-# kali-rootfs.squashfs (Kali arm64 guest rootfs).
+# guest rootfs squashfs images (kali / debian / ubuntu, arm64).
 #
 # Usage: ./build.sh [initramfs|rootfs|all] [SYSTEM_VERSION]
+#   rootfs variants: kali, debian, ubuntu (default: all three)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,21 +24,40 @@ build_initramfs() {
     ls -lh "${OUT}/initrd.img"
 }
 
-build_rootfs() {
-    log "Building Kali rootfs squashfs (Docker)..."
-    docker build -f "${SCRIPT_DIR}/build-rootfs/Dockerfile.rootfs" \
-        -t podroid-rootfs:latest \
+build_distro_rootfs() {
+    local distro="$1"
+    local dockerfile="Dockerfile.rootfs"
+    local outfile="kali-rootfs.squashfs"
+    case "${distro}" in
+        kali)   dockerfile="Dockerfile.rootfs";  outfile="kali-rootfs.squashfs" ;;
+        debian) dockerfile="Dockerfile.rootfs-debian";  outfile="debian-rootfs.squashfs" ;;
+        ubuntu) dockerfile="Dockerfile.rootfs-ubuntu";  outfile="ubuntu-rootfs.squashfs" ;;
+        *) echo "unknown distro: ${distro}"; exit 1 ;;
+    esac
+    log "Building ${distro} rootfs squashfs (Docker)..."
+    docker build -f "${SCRIPT_DIR}/build-rootfs/${dockerfile}" \
+        -t "podroid-rootfs-${distro}:latest" \
         --platform linux/arm64 \
         --build-arg "SYSTEM_VERSION=${SYSTEM_VERSION}" \
         --output type=local,dest="${OUT}" \
         "${SCRIPT_DIR}/build-rootfs/"
-    ls -lh "${OUT}/kali-rootfs.squashfs"
+    ls -lh "${OUT}/${outfile}"
+}
+
+build_rootfs() {
+    # Default: build all three distro rootfs images.
+    for d in kali debian ubuntu; do
+        build_distro_rootfs "$d"
+    done
 }
 
 case "${TARGET}" in
-    initramfs) build_initramfs ;;
-    rootfs)    build_rootfs ;;
-    all)       build_initramfs && build_rootfs ;;
-    *) echo "usage: $0 [initramfs|rootfs|all]"; exit 1 ;;
+    initramfs)      build_initramfs ;;
+    rootfs)         build_rootfs ;;
+    kali)           build_distro_rootfs kali ;;
+    debian)         build_distro_rootfs debian ;;
+    ubuntu)         build_distro_rootfs ubuntu ;;
+    all)            build_initramfs && build_rootfs ;;
+    *) echo "usage: $0 [initramfs|rootfs|kali|debian|ubuntu|all] [SYSTEM_VERSION]"; exit 1 ;;
 esac
 echo "Artifacts in: ${OUT}"

@@ -24,7 +24,7 @@ on:
 jobs:
   build-rootfs:
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 240
     env:
       DEBIAN_FRONTEND: noninteractive
     steps:
@@ -44,9 +44,6 @@ jobs:
       - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 预拉取 Kali arm64 基础镜像
-        run: docker pull --platform linux/arm64 kalilinux/kali-rolling:latest
-
       - name: 构建 initramfs
         run: |
           docker build --network=host \
@@ -56,19 +53,39 @@ jobs:
             .
           ls -lh out/initrd.img
 
-      - name: 构建 Kali rootfs squashfs
+      - name: 构建 Kali rootfs
         run: |
           docker build -f build-rootfs/Dockerfile.rootfs \
-            -t podroid-rootfs:latest \
+            -t podroid-rootfs-kali:latest \
             --platform linux/arm64 \
             --build-arg "SYSTEM_VERSION=${{ github.event.inputs.system_version || '0' }}" \
             --output type=local,dest=out \
             build-rootfs/
           ls -lh out/kali-rootfs.squashfs
 
+      - name: 构建 Debian rootfs (minimal)
+        run: |
+          docker build -f build-rootfs/Dockerfile.rootfs-debian \
+            -t podroid-rootfs-debian:latest \
+            --platform linux/arm64 \
+            --build-arg "SYSTEM_VERSION=${{ github.event.inputs.system_version || '0' }}" \
+            --output type=local,dest=out \
+            build-rootfs/
+          ls -lh out/debian-rootfs.squashfs
+
+      - name: 构建 Ubuntu rootfs (minimal)
+        run: |
+          docker build -f build-rootfs/Dockerfile.rootfs-ubuntu \
+            -t podroid-rootfs-ubuntu:latest \
+            --platform linux/arm64 \
+            --build-arg "SYSTEM_VERSION=${{ github.event.inputs.system_version || '0' }}" \
+            --output type=local,dest=out \
+            build-rootfs/
+          ls -lh out/ubuntu-rootfs.squashfs
+
       - name: 清理 Docker 镜像
         run: |
-          docker rmi -f podroid-rootfs:latest podroid-initramfs-builder 2>/dev/null || true
+          docker rmi -f podroid-rootfs-kali podroid-rootfs-debian podroid-rootfs-ubuntu podroid-initramfs-builder 2>/dev/null || true
           docker system prune -f 2>/dev/null || true
           df -h /
 
@@ -79,6 +96,8 @@ jobs:
           path: |
             out/initrd.img
             out/kali-rootfs.squashfs
+            out/debian-rootfs.squashfs
+            out/ubuntu-rootfs.squashfs
           if-no-files-found: error
           retention-days: 30
 
@@ -89,4 +108,9 @@ jobs:
         run: |
           gh release view latest >/dev/null 2>&1 || \
             gh release create latest --title "最新系统镜像" --notes "System $SYSTEM_VERSION" --prerelease
-          gh release upload latest out/initrd.img out/kali-rootfs.squashfs --clobber
+          gh release upload latest \
+            out/initrd.img \
+            out/kali-rootfs.squashfs \
+            out/debian-rootfs.squashfs \
+            out/ubuntu-rootfs.squashfs \
+            --clobber
