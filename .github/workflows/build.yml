@@ -1,0 +1,92 @@
+name: 构建系统镜像 (poroid-rootfs)
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'build-rootfs/**'
+      - 'init-podroid'
+      - 'Dockerfile.initramfs'
+      - 'build.sh'
+  workflow_dispatch:
+    inputs:
+      system_version:
+        description: '系统版本号 (SYSTEM_VERSION)'
+        required: false
+        default: '0'
+        type: string
+      push_to_release:
+        description: '上传到 GitHub Release'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  build-rootfs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 释放磁盘空间
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc 2>/dev/null || true
+          df -h
+
+      - name: 设置 QEMU (arm64)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 预拉取 Kali arm64 基础镜像
+        run: docker pull --platform linux/arm64 kalilinux/kali-rolling:latest
+
+      - name: 构建 initramfs
+        run: |
+          docker build --network=host \
+            -t podroid-initramfs-builder \
+            -f Dockerfile.initramfs \
+            --output type=local,dest=out \
+            .
+          ls -lh out/initrd.img
+
+      - name: 构建 Kali rootfs squashfs
+        run: |
+          docker build -f build-rootfs/Dockerfile.rootfs \
+            -t podroid-rootfs:latest \
+            --platform linux/arm64 \
+            --build-arg "SYSTEM_VERSION=${{ github.event.inputs.system_version || '0' }}" \
+            --output type=local,dest=out \
+            build-rootfs/
+          ls -lh out/kali-rootfs.squashfs
+
+      - name: 清理 Docker 镜像
+        run: |
+          docker rmi -f podroid-rootfs:latest podroid-initramfs-builder 2>/dev/null || true
+          docker system prune -f 2>/dev/null || true
+          df -h /
+
+      - name: 上传系统镜像产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: podroid-system
+          path: |
+            out/initrd.img
+            out/kali-rootfs.squashfs
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: 上传到 Release
+        if: inputs.push_to_release != false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view latest >/dev/null 2>&1 || \
+            gh release create latest --title "最新系统镜像" --notes "System $SYSTEM_VERSION" --prerelease
+          gh release upload latest out/initrd.img out/kali-rootfs.squashfs --clobber

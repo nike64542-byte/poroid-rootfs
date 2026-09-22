@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Podroid VM Initramfs (Alpine) Build
+#
+# Produces initrd.img: an Alpine aarch64 netboot rootfs with podman/netavark/
+# fuse-overlayfs + the custom `init-podroid` init script, packed as a gzip cpio
+# archive. The matching kernel (vmlinuz-virt) ships from poroid-kernel and is
+# bundled alongside by the consumer (poroid-apk).
+#
+# No kernel modules are needed: the custom Podroid kernel forces every driver
+# the VM needs (=y), so /lib/modules stays empty.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Stage 1: Download Alpine aarch64 artifacts
+FROM alpine:3.24 AS downloader
+RUN apk add --no-cache wget cpio gzip tar xorriso
+WORKDIR /downloads
+RUN for i in 1 2 3 4 5; do \
+        wget -q --tries=3 --timeout=60 --waitretry=5 \
+          https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-netboot-3.24.1-aarch64.tar.gz \
+        && break || { echo "Attempt $i failed, retrying in 10s..."; sleep 10; }; \
+    done \
+    && mkdir -p /netboot && tar -xf alpine-netboot-3.24.1-aarch64.tar.gz -C /netboot
+RUN for i in 1 2 3 4 5; do \
+        wget -q --tries=3 --timeout=60 --waitretry=5 \
+          https://dl-cdn.alpinelinux.org/alpine/v3.24/releases/aarch64/alpine-virt-3.24.1-aarch64.iso \
+        && break || { echo "Attempt $i failed, retrying in 10s..."; sleep 10; }; \
+    done \
+    && mkdir -p /iso && xorriso -osirrox on -indev alpine-virt-3.24.1-aarch64.iso -extract / /iso 2>/dev/null || true
+
+# Stage 2: Build the custom initramfs rootfs (aarch64)
+FROM --platform=linux/arm64/v8 alpine:3.24 AS rootfs-builder
+RUN apk update && apk add --no-cache \
+    bash busybox busybox-extras ttyd podman \
+    netavark aardvark-dns fuse-overlayfs slirp4netns iptables ip6tables \
+    shadow-uidmap ca-certificates crun curl e2fsprogs e2fsprogs-extra util-linux openrc \
+    dropbear ncurses-terminfo-base musl-locales kmod fastfetch
+COPY init-podroid /init
+RUN chmod +x /init
+RUN rm -rf /var/cache/apk/* /tmp/* /var/tmp/* /usr/share/man /usr/share/doc
+
+# Stage 3: Pack Initramfs
+FROM alpine:3.24 AS packer
+RUN apk add --no-cache cpio gzip findutils
+COPY --from=rootfs-builder / /rootfs/
+# Custom kernel ships no modules; provide the empty dir the init checks for.
+RUN mkdir -p /rootfs/lib/modules
+# Strip ephemeral dirs and boot dir
+RUN rm -rf /rootfs/proc/* /rootfs/sys/* /rootfs/dev/* /rootfs/run/* \
+           /rootfs/tmp/* /rootfs/boot
+RUN mkdir -p /output \
+ && cd /rootfs && find . | cpio -o -H newc 2>/dev/null | gzip -9 > /output/initrd.img
+
+FROM scratch AS export
+COPY --from=packer /output/initrd.img /initrd.img

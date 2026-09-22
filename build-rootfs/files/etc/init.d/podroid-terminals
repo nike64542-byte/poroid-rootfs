@@ -1,0 +1,26 @@
+#!/sbin/openrc-run
+description="Podroid dynamic multi-window terminal setup (gettys + resize daemons)"
+command="/usr/local/bin/podroid-terminals"
+pidfile="/run/podroid-terminals.pid"
+
+start() {
+    ebegin "Starting podroid-terminals"
+    start-stop-daemon --start --background --make-pidfile \
+        --pidfile "$pidfile" \
+        --exec "$command"
+    eend $?
+}
+
+stop() {
+    ebegin "Stopping podroid-terminals"
+    start-stop-daemon --stop --pidfile "$pidfile" 2>/dev/null
+    # The script backgrounds gettys + resize daemons; reap them on stop.
+    pkill -f "podroid-getty-extra hvc" 2>/dev/null
+    pkill -f "podroid-resize hvc" 2>/dev/null
+    eend 0
+}
+
+depend() {
+    need podroid-bootstrap
+    before podroid-ready
+}

@@ -1,0 +1,44 @@
+#!/bin/sh
+# podroid-mirror — switch the Kali apt mirror in the guest.
+#
+#   podroid-mirror            show current mirror + usage
+#   podroid-mirror official   Kali official (http.kali.org — global CDN, reliable)
+#   podroid-mirror ustc       USTC 中科大 (recommended for China, supports arm64)
+#   podroid-mirror aliyun     Aliyun 阿里云 (supports arm64)
+#
+# Writes /etc/apt/sources.list then runs `apt-get update`.
+# Note: only mirrors that carry the arm64 port are listed. Tsinghua's Kali
+# mirror returns 403 for arm64 and NetEase's returns 404, so they are omitted.
+set -eu
+
+SRC=/etc/apt/sources.list
+SUITE="kali-rolling"
+COMP="main contrib non-free non-free-firmware"
+
+usage() {
+    echo "current sources.list:"
+    sed -n 's/^deb  *//p' "$SRC" 2>/dev/null || cat "$SRC"
+    echo
+    echo "usage: podroid-mirror <official|ustc|aliyun>"
+    echo "  official  Kali official CDN (reliable, slower from China)"
+    echo "  ustc      USTC 中科大 (recommended in China, arm64)"
+    echo "  aliyun    Aliyun 阿里云 (arm64)"
+}
+
+apply() {
+    local url="$1" name="$2"
+    cat > "$SRC" <<EOF
+# Kali mirror: $name (managed by podroid-mirror)
+deb $url $SUITE $COMP
+deb-src $url $SUITE $COMP
+EOF
+    apt-get update
+    echo "mirror switched to $name: $url"
+}
+
+case "${1:-}" in
+    official) apply "http://http.kali.org/kali"         "Kali official" ;;
+    ustc)     apply "https://mirrors.ustc.edu.cn/kali"  "USTC" ;;
+    aliyun)   apply "https://mirrors.aliyun.com/kali"   "Aliyun" ;;
+    *)        usage ;;
+esac

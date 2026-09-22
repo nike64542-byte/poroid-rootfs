@@ -1,0 +1,70 @@
+#!/bin/sh
+# podroid-xfce — start the XFCE desktop on the Podroid Xvnc display.
+#
+# The Podroid-Kali base image intentionally ships WITHOUT a desktop
+# (low-memory first). Install XFCE on-demand, then run this:
+#
+#   apt update
+#   apt install xfce4 xfce4-terminal xfce4-whiskermenu-plugin \
+#       tigervnc-standalone-server fonts-dejavu dbus-x11
+#   podroid-xfce start
+#
+# This starts a D-Bus session bus and launches xfce4-session against the
+# running Xvnc on DISPLAY :0 (started by the podroid-x11 OpenRC service).
+# Run it again with `stop` to end the desktop session.
+set -eu
+
+DISPLAY_NUM=${DISPLAY:-:0}
+RUNTIME_DIR=/run/podroid-pulse
+PIDFILE=/run/xfce-session.pid
+
+start_xfce() {
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+        echo "XFCE session already running (pid $(cat "$PIDFILE"))"
+        return 0
+    fi
+
+    # The Xvnc display must already be up (podroid-x11 service).
+    if ! [ -S /tmp/.X11-unix/X0 ]; then
+        echo "Xvnc is not running — start it first (service podroid-x11 start) or check /var/log/xvnc.log" >&2
+        return 1
+    fi
+
+    export DISPLAY="$DISPLAY_NUM"
+    export XDG_RUNTIME_DIR="$RUNTIME_DIR"
+    export PULSE_SERVER="unix:$RUNTIME_DIR/native"
+
+    # D-Bus session bus for the desktop stack (panel, settings daemon, thunar).
+    if command -v dbus-launch >/dev/null 2>&1 && [ -z "$DBUS_SESSION_BUS_ADDRESS" ]; then
+        eval "$(dbus-launch --sh-syntax --exit-with-session 2>/dev/null)" || true
+        export DBUS_SESSION_BUS_ADDRESS
+    fi
+
+    if command -v startxfce4 >/dev/null 2>&1; then
+        startxfce4 >/var/log/xfce-session.log 2>&1 &
+    elif command -v xfce4-session >/dev/null 2>&1; then
+        xfce4-session >/var/log/xfce-session.log 2>&1 &
+    else
+        echo "XFCE is not installed. Install it with: apt install xfce4 xfce4-terminal" >&2
+        return 1
+    fi
+
+    echo "$!" > "$PIDFILE"
+    echo "XFCE session started (pid $(cat "$PIDFILE")). View it via the in-app X11 viewer."
+}
+
+stop_xfce() {
+    if [ -f "$PIDFILE" ] && kill -0 "$(cat "$PIDFILE" 2>/dev/null)" 2>/dev/null; then
+        kill "$(cat "$PIDFILE")" 2>/dev/null || true
+        rm -f "$PIDFILE"
+        echo "XFCE session stopped."
+    else
+        echo "No running XFCE session."
+    fi
+}
+
+case "${1:-start}" in
+    start|begin|launch) start_xfce ;;
+    stop|end|kill)      stop_xfce ;;
+    *) echo "usage: $0 {start|stop}" >&2; exit 1 ;;
+esac

@@ -1,0 +1,141 @@
+#!/sbin/openrc-run
+description="Podroid VM networking (10.0.2.15 via SLIRP)"
+
+depend() {
+    need podroid-bootstrap
+    before podroid-ready dropbear
+    provide net
+}
+
+start() {
+    ebegin "Configuring network..."
+    echo "Configuring containers..." > /dev/console
+    ip link set lo up 2>/dev/null
+
+    # All physical interfaces — excludes virtual/bridge devices (the LXC
+    # bridge lxcbr0, podman/docker/cni bridges, veth pairs). The first is the
+    # primary SLIRP/virtio NIC; any others are USB network adapters that were
+    # passed through (see below).
+    PHYS_IFS=$(ip -o link show 2>/dev/null | awk -F': ' '{print $2}' | \
+        grep -vE '^(lo|dummy[0-9]*|veth|podman|cni|docker|lxcbr|br-)')
+
+    NETIF=""
+    for _i in $(seq 1 10); do
+        NETIF=$(printf '%s\n' "$PHYS_IFS" | head -1)
+        [ -n "$NETIF" ] && break
+        sleep 0.05
+    done
+    if [ -z "$NETIF" ]; then
+        eend 1 "no network interface"
+        return 1
+    fi
+    ip link set "$NETIF" up
+
+    if grep -q 'podroid\.backend=avf' /proc/cmdline 2>/dev/null; then
+        # AVF backend: crosvm wires the guest to a TAP that Android's tethering
+        # manager runs DHCP on. The lease decides our IP / gateway / DNS — the
+        # SLIRP-style 10.0.2.15 hardcode won't sit on the right subnet (on
+        # IPv6-only cellular w/ CLAT it lands on 192.0.0.x). dhclient applies
+        # everything via its own hooks.
+        dhclient -1 -v "$NETIF" 2>/dev/null || true
+        # Belt-and-suspenders: if DHCP didn't write resolv.conf (busybox
+        # variants differ), drop public DNS so apk/curl don't die silently.
+        [ -s /etc/resolv.conf ] || printf 'nameserver 8.8.8.8\nnameserver 1.1.1.1\n' > /etc/resolv.conf
+        # Don't report success on a total DHCP failure: dependents that
+        # `need` us would start believing the link is up, then SSH/apk fail
+        # with no obvious cause. Surface it instead.
+        if ! ip -o -4 addr show dev "$NETIF" 2>/dev/null | grep -q 'inet '; then
+            eend 1 "DHCP did not assign an address to $NETIF"
+            return 1
+        fi
+    else
+        # QEMU/TCG backend: SLIRP's built-in DHCP also exists but hardcoding
+        # is faster + matches every existing user's setup. Original behavior.
+        ip addr add 10.0.2.15/24 dev "$NETIF" 2>/dev/null
+        ip route add default via 10.0.2.2 dev "$NETIF" 2>/dev/null
+        # SLIRP's 10.0.2.3 DNS forwarder is dead on Android (it reads the
+        # host's /etc/resolv.conf, which doesn't exist here). QemuEngine
+        # passes the device's own resolvers via podroid.dns= when it has any;
+        # re-validate rather than trust the cmdline, and use only the first
+        # one that parses as a dotted quad. It replaces just the 10.0.2.3
+        # slot - 8.8.8.8 and 1.1.1.1 stay in place either way.
+        DNS_RAW=$(sed -n 's/.*podroid\.dns=\([0-9.,]*\).*/\1/p' /proc/cmdline 2>/dev/null)
+        DEVICE_DNS=""
+        if [ -n "$DNS_RAW" ]; then
+            _ifs=$IFS
+            IFS=,
+            set -- $DNS_RAW
+            IFS=$_ifs
+            for _cand in "$@"; do
+                _dots=$IFS
+                IFS=.
+                set -- $_cand
+                IFS=$_dots
+                if [ $# -eq 4 ]; then
+                    _ok=1
+                    for _o in "$1" "$2" "$3" "$4"; do
+                        case "$_o" in ''|*[!0-9]*) _ok=0 ;; esac
+                        if [ "$_ok" = 1 ] && [ "$_o" -gt 255 ] 2>/dev/null; then
+                            _ok=0
+                        fi
+                    done
+                    if [ "$_ok" = 1 ]; then
+                        DEVICE_DNS="$_cand"
+                        break
+                    fi
+                fi
+            done
+        fi
+        if [ -n "$DEVICE_DNS" ]; then
+            printf 'nameserver %s\nnameserver 8.8.8.8\nnameserver 1.1.1.1\n' "$DEVICE_DNS" \
+                > /etc/resolv.conf
+        else
+            printf 'nameserver 10.0.2.3\nnameserver 8.8.8.8\nnameserver 1.1.1.1\n' \
+                > /etc/resolv.conf
+        fi
+        echo "DNS: ${DEVICE_DNS:-10.0.2.3} 8.8.8.8" > /dev/console
+        # Mirror the AVF post-check: if the static assignment didn't stick
+        # (wrong NIC, link not up), don't report success. Dependents that
+        # `need` us would assume the link is up and then SSH/apk fail with no
+        # obvious cause. Surface it instead.
+        if ! ip -o -4 addr show dev "$NETIF" 2>/dev/null | grep -q 'inet '; then
+            eend 1 "static IP did not stick on $NETIF"
+            return 1
+        fi
+    fi
+    BW_MBIT=$(sed -n 's/.*podroid\.bandwidth=\([0-9]*\).*/\1/p' /proc/cmdline 2>/dev/null)
+    if [ -n "$BW_MBIT" ] && [ "$BW_MBIT" -gt 0 ]; then
+        tc qdisc replace dev "$NETIF" root tbf rate "${BW_MBIT}mbit" burst 32kbit latency 400ms 2>/dev/null || true
+    fi
+
+    # ── USB network adapters passed through to the guest ──────────────────────
+    # The primary NIC (SLIRP virtio on QEMU, TAP on AVF) is handled above. Any
+    # remaining physical interface is a USB NIC the user plugged into the phone
+    # and handed to the guest via USB passthrough (e.g. an ethernet adapter or
+    # a USB WiFi stick). Bring it up and let DHCP assign it an address so the
+    # guest can actually use it, rather than being left as a phantom interface.
+    # USB passthrough is QEMU-only (UsbPassthroughManager needs the QMP socket),
+    # so only run this on the QEMU/TCG path.
+    if ! grep -q 'podroid\.backend=avf' /proc/cmdline 2>/dev/null; then
+        for _if in $PHYS_IFS; do
+            [ "$_if" = "$NETIF" ] && continue
+            # Skip interfaces that are already up with an address (e.g. the
+            # SLIRP NIC itself, or a NIC another service configured).
+            ip -o -4 addr show dev "$_if" 2>/dev/null | grep -q 'inet ' && continue
+            echo "USB NIC $_if — running DHCP" > /dev/console
+            ip link set "$_if" up 2>/dev/null
+            dhclient -1 -v "$_if" 2>/dev/null || true
+            # If DHCP failed (no server on that link), still surface it but
+            # don't fail the whole network bring-up — the primary NIC is what
+            # the rest of the stack depends on.
+            if ip -o -4 addr show dev "$_if" 2>/dev/null | grep -q 'inet '; then
+                echo "USB NIC $_if up: $(ip -o -4 addr show dev "$_if" | awk '{print $4}' | head -1)" > /dev/console
+            else
+                echo "USB NIC $_if: no DHCP response (link left unconfigured)" > /dev/console
+            fi
+        done
+    fi
+
+    echo "Network found" > /dev/console
+    eend 0
+}

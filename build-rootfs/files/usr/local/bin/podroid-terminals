@@ -1,0 +1,43 @@
+#!/bin/sh
+# Podroid dynamic multi-window terminal setup.
+#
+# The QEMU backend exposes one (term, ctrl) virtio-console pair per terminal
+# tab. Tab 0 is the primary console: term=hvc0, ctrl=hvc1 (its getty is
+# started by inittab). Every other tab k>=1 gets term=hvc(2k+1) and
+# ctrl=hvc(2k+2). hvc2 is the host bridge and is never a terminal.
+#
+# For each present terminal port this script:
+#   * starts a resize daemon bridging the ctrl hvc -> the term hvc
+#     (k>=0, so the primary terminal is covered too), and
+#   * for extra tabs (k>=1) spawns an auto-login getty with a respawn loop.
+#
+# Ports that do not exist are skipped, and enumeration stops at the first gap,
+# so this adapts to whatever TERMINAL_TABS the Android side requests - no
+# guest rebuild is needed to add (or remove) terminal windows.
+MAX_TABS=31
+
+for k in $(seq 0 "$MAX_TABS"); do
+    if [ "$k" -eq 0 ]; then
+        term="hvc0"; ctrl="hvc1"
+    else
+        term="hvc$((2*k+1))"; ctrl="hvc$((2*k+2))"
+    fi
+
+    # Present ports are contiguous; stop scanning once one is missing.
+    if [ ! -c "/dev/$term" ]; then
+        [ "$k" -eq 0 ] || break
+        continue   # tab 0 missing -> nothing to resize against
+    fi
+
+    # Resize bridge (ctrl -> term), if the ctrl node exists.
+    [ -c "/dev/$ctrl" ] && /usr/local/bin/podroid-resize "$ctrl" "$term" &
+
+    # Getty for extra tabs only; tab 0's getty is launched by inittab.
+    if [ "$k" -ge 1 ]; then
+        (
+            while true; do
+                /usr/local/bin/podroid-getty-extra "$term" || sleep 1
+            done
+        ) &
+    fi
+done

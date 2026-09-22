@@ -1,0 +1,38 @@
+#!/sbin/openrc-run
+description="Podroid terminal resize daemons (per-port ctrl → stty target)"
+command="/usr/local/bin/podroid-resize"
+
+# One resize daemon per terminal tab: (ctrl, target).
+#   tab 0: hvc1  → hvc0   (primary terminal)
+#   tab 1: hvc4  → hvc3   (extra terminal 1)
+#   tab 2: hvc6  → hvc5   (extra terminal 2)
+terminals="hvc1/hvc0 hvc4/hvc3 hvc6/hvc5"
+
+start() {
+    ebegin "Starting podroid-resize daemons"
+    for pair in $terminals; do
+        ctrl="${pair%%/*}"
+        target="${pair##*/}"
+        start-stop-daemon --start --background --make-pidfile \
+            --pidfile "/run/podroid-resize-${ctrl}.pid" \
+            --exec /usr/local/bin/podroid-resize -- "$ctrl" "$target"
+    done
+    eend $?
+}
+
+stop() {
+    ebegin "Stopping podroid-resize daemons"
+    for pair in $terminals; do
+        ctrl="${pair%%/*}"
+        start-stop-daemon --stop \
+            --pidfile "/run/podroid-resize-${ctrl}.pid" \
+            --exec /usr/local/bin/podroid-resize 2>/dev/null
+        rm -f "/run/podroid-resize-${ctrl}.pid"
+    done
+    eend $?
+}
+
+depend() {
+    need podroid-bootstrap
+    before podroid-ready
+}

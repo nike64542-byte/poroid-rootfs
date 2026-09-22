@@ -1,0 +1,28 @@
+# Build outputs
+out/
+kali-rootfs/
+config-temp/
+*.squashfs
+*.img
+
+# Docker
+.kotlin/
+
+# Alpine rootfs scratch dirs (generated during Docker build)
+/bin/
+/etc/
+/lib/
+/sbin/
+/usr/
+/var/
+/dev/
+/home/
+/media/
+/mnt/
+/opt/
+/proc/
+/root/
+/run/
+/srv/
+/sys/
+/tmp/

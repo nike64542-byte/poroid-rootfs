@@ -1,0 +1,21 @@
+si:12345:sysinit:/sbin/openrc sysinit
+rb:12345:wait:/sbin/openrc boot
+rd:12345:once:/sbin/openrc default
+
+# Default runlevel — without this sysvinit asks "Enter runlevel:"
+id:3:initdefault:
+
+# Getty — podroid-getty picks the right tty via podroid.tty= on kernel cmdline.
+# hv0 = hvc0 (QEMU virtio-console primary terminal), s0 = ttyS0 (serial)
+hv0:12345:respawn:/usr/local/bin/podroid-getty hvc0
+s0:12345:respawn:/usr/local/bin/podroid-getty ttyS0
+
+# Extra multi-window terminals (hvc3, hvc5, hvc7 ...). Podroid's terminal
+# count is not fixed at build time: the QEMU backend opens one virtio-console
+# (term, ctrl) pair per terminal tab, and /usr/local/bin/podroid-terminals
+# enumerates the present ports at boot and spawns a getty + resize daemon for
+# each one. This keeps the guest image independent of the Android-side
+# TERMINAL_TABS value — adding terminal windows needs no guest rebuild.
+# (The tab 0 getty on hvc0 is the line above; the rest are dynamic.)
+
+0:0:wait:/sbin/openrc shutdown

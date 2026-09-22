@@ -1,0 +1,66 @@
+# build-rootfs/Dockerfile.rootfs
+#
+# Builds the Podroid guest root filesystem as a squashfs image.
+# The guest OS is Kali Linux (arm64) with a lightweight XFCE desktop,
+# OpenRC/sysvinit init (NO systemd), and the Podroid bridge agents.
+
+# ── Stage 1: cross-compile podroid-* C agents (musl-static aarch64) ──────────
+# Uses qemu-user under the hood — no separate cross-toolchain needed.
+# These binaries are statically linked against musl, so they run unchanged
+# on the glibc-based Kali guest.
+FROM --platform=linux/arm64 alpine:3.24 AS vsock-builder
+RUN apk add --no-cache musl-dev gcc make linux-headers
+WORKDIR /work
+COPY vsock-agent /work/vsock-agent
+RUN cd /work/vsock-agent && make CC=gcc
+COPY host-bridge /work/host-bridge
+RUN cd /work/host-bridge && make CC=gcc
+COPY overlay-normalize /work/overlay-normalize
+RUN cd /work/overlay-normalize && make CC=gcc
+
+# ── Stage 2: build the Kali rootfs squashfs ───────────────────────────────────
+# Runs under qemu-user (binfmt_misc) on x86_64 CI runners. apt executes arm64
+# binaries via QEMU, which is slower than native but fully works and is cached
+# by Docker layer reuse.
+FROM --platform=linux/arm64 kalilinux/kali-rolling:latest AS builder
+
+# Disable interactive debconf prompts inside the build.
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Tooling needed to build the squashfs (host-agnostic: runs under qemu-arm64).
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      squashfs-tools \
+      xz-utils \
+      openssl \
+      libcap2-bin \
+      rsync \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+
+# Pull in the podroid-* C agents built in stage 1 (directly into the rootfs).
+COPY --from=vsock-builder /work/vsock-agent/podroid-vsock-agent /usr/local/bin/podroid-vsock-agent
+COPY --from=vsock-builder /work/host-bridge/podroid-hostd /usr/local/bin/podroid-hostd
+COPY --from=vsock-builder /work/overlay-normalize/podroid-overlay-normalize /usr/local/bin/podroid-overlay-normalize
+RUN chmod +x /usr/local/bin/podroid-vsock-agent /usr/local/bin/podroid-hostd \
+             /usr/local/bin/podroid-overlay-normalize
+
+ARG SYSTEM_VERSION=0
+ENV SYSTEM_VERSION=${SYSTEM_VERSION}
+
+# 1. Install packages + configure rootfs (runs in the container root /)
+COPY files /work/files
+COPY build-rootfs.sh /work/build-rootfs.sh
+RUN chmod +x /work/build-rootfs.sh && /work/build-rootfs.sh
+
+# 2. rsync the installed system to /work/rootfs (done by build-rootfs.sh above)
+# 3. Squash the clean rootfs directory (not the container root /)
+RUN mksquashfs /work/rootfs /work/kali-rootfs.squashfs \
+    -comp zstd -Xcompression-level 19 -all-root -noappend \
+    -e /proc /sys /dev /run /tmp /var/tmp /work \
+       /var/lib/apt/lists /var/cache/apt /var/cache/apt/archives /var/log \
+       /usr/share/man /usr/share/doc /usr/share/locale /usr/share/info
+
+FROM scratch AS export
+COPY --from=builder /work/kali-rootfs.squashfs /kali-rootfs.squashfs
