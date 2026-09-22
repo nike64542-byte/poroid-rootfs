@@ -37,9 +37,11 @@ rm -rf /etc/apt/sources.list.d
 mkdir -p /etc/apt/sources.list.d
 
 if [ "${DISTRO}" = "ubuntu" ]; then
+    # arm64 Ubuntu uses ports.ubuntu.com (not archive.ubuntu.com, which only
+    # serves amd64). One component per line is required for arm64 indexes.
     cat > /etc/apt/sources.list <<'EOF'
-deb http://archive.ubuntu.com/ubuntu noble main universe
-deb-src http://archive.ubuntu.com/ubuntu noble main universe
+deb http://ports.ubuntu.com/ubuntu-ports noble main universe
+deb-src http://ports.ubuntu.com/ubuntu-ports noble main universe
 EOF
 else
     cat > /etc/apt/sources.list <<'EOF'
@@ -283,7 +285,7 @@ rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/* /var/cache/apt/archives/pa
 rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
 
 if [ "${DISTRO}" = "ubuntu" ]; then
-    UBUNTU_MIRROR="${UBUNTU_MIRROR:-https://mirrors.ustc.edu.cn/ubuntu}"
+    UBUNTU_MIRROR="${UBUNTU_MIRROR:-https://mirrors.ustc.edu.cn/ubuntu-ports}"
     cat > /etc/apt/sources.list <<EOF
 deb $UBUNTU_MIRROR noble main universe
 deb-src $UBUNTU_MIRROR noble main universe
