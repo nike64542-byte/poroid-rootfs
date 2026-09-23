@@ -10,6 +10,17 @@ on:
       - 'build.sh'
   workflow_dispatch:
     inputs:
+      distro:
+        description: '构建哪个镜像'
+        required: true
+        default: 'kali'
+        type: choice
+        options:
+          - initramfs
+          - kali
+          - debian
+          - ubuntu
+          - all
       system_version:
         description: '系统版本号 (SYSTEM_VERSION)'
         required: false
@@ -20,6 +31,10 @@ on:
         required: false
         default: true
         type: boolean
+
+env:
+  DISTRO: ${{ github.event.inputs.distro || 'kali' }}
+  SYSTEM_VERSION: ${{ github.event.inputs.system_version || '0' }}
 
 jobs:
   build-rootfs:
@@ -44,44 +59,22 @@ jobs:
       - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: 构建 initramfs
+      - name: 构建目标镜像
         run: |
-          docker build --network=host \
-            -t podroid-initramfs-builder \
-            -f Dockerfile.initramfs \
-            --output type=local,dest=out \
-            .
-          ls -lh out/initrd.img
-
-      - name: 构建 Kali rootfs
-        run: |
-          docker build -f build-rootfs/Dockerfile.rootfs \
-            -t podroid-rootfs-kali:latest \
-            --platform linux/arm64 \
-            --build-arg "SYSTEM_VERSION=${{ github.event.inputs.system_version || '0' }}" \
-            --output type=local,dest=out \
-            build-rootfs/
-          ls -lh out/kali-rootfs.squashfs
-
-      - name: 构建 Debian rootfs (minimal)
-        run: |
-          docker build -f build-rootfs/Dockerfile.rootfs-debian \
-            -t podroid-rootfs-debian:latest \
-            --platform linux/arm64 \
-            --build-arg "SYSTEM_VERSION=${{ github.event.inputs.system_version || '0' }}" \
-            --output type=local,dest=out \
-            build-rootfs/
-          ls -lh out/debian-rootfs.squashfs
-
-      - name: 构建 Ubuntu rootfs (minimal)
-        run: |
-          docker build -f build-rootfs/Dockerfile.rootfs-ubuntu \
-            -t podroid-rootfs-ubuntu:latest \
-            --platform linux/arm64 \
-            --build-arg "SYSTEM_VERSION=${{ github.event.inputs.system_version || '0' }}" \
-            --output type=local,dest=out \
-            build-rootfs/
-          ls -lh out/ubuntu-rootfs.squashfs
+          echo "DISTRO=${DISTRO} SYSTEM_VERSION=${SYSTEM_VERSION}"
+          case "${DISTRO}" in
+            initramfs) ./build.sh initramfs ;;
+            kali)      ./build.sh initramfs && ./build.sh kali ;;
+            debian)    ./build.sh initramfs && ./build.sh debian ;;
+            ubuntu)    ./build.sh initramfs && ./build.sh ubuntu ;;
+            all)
+              ./build.sh initramfs
+              ./build.sh kali
+              ./build.sh debian
+              ./build.sh ubuntu
+              ;;
+            *) echo "未知 distro: ${DISTRO}"; exit 1 ;;
+          esac
 
       - name: 清理 Docker 镜像
         run: |
@@ -92,12 +85,10 @@ jobs:
       - name: 上传系统镜像产物
         uses: actions/upload-artifact@v4
         with:
-          name: podroid-system
+          name: podroid-system-${{ env.DISTRO }}
           path: |
             out/initrd.img
-            out/kali-rootfs.squashfs
-            out/debian-rootfs.squashfs
-            out/ubuntu-rootfs.squashfs
+            out/*-rootfs.squashfs
           if-no-files-found: error
           retention-days: 30
 
@@ -107,10 +98,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release view latest >/dev/null 2>&1 || \
-            gh release create latest --title "最新系统镜像" --notes "System $SYSTEM_VERSION" --prerelease
-          gh release upload latest \
-            out/initrd.img \
-            out/kali-rootfs.squashfs \
-            out/debian-rootfs.squashfs \
-            out/ubuntu-rootfs.squashfs \
-            --clobber
+            gh release create latest --title "最新系统镜像" --notes "System $SYSTEM_VERSION ($DISTRO)" --prerelease
+          # 只上传本次构建的产物，用 --clobber 覆盖同名旧文件
+          for f in out/initrd.img out/*-rootfs.squashfs; do
+            [ -f "$f" ] && gh release upload latest "$f" --clobber || true
+          done

@@ -1,23 +1,53 @@
 # poroid-rootfs
 
-Podroid guest system builder — the operating system that runs inside the
-aarch64 micro-VM. Produces two artifacts:
+Podroid guest system builder — produces the boot initramfs plus guest rootfs
+images (arm64). **Kernel is NOT here** — it lives in
+[poroid-kernel](https://github.com/nike64542-byte/poroid-kernel) and is shared
+by every distro image.
 
-- `initrd.img` — Alpine aarch64 initramfs (podman/netavark/fuse-overlayfs +
-  custom `init-podroid` init), packed as gzip cpio.
-- `kali-rootfs.squashfs` — Kali Linux arm64 guest rootfs with a lightweight
-  XFCE desktop, OpenRC init and the Podroid bridge agents.
+## Why is there an Alpine initramfs?
 
-Consumed by [poroid-apk](https://github.com/nike64542-byte/poroid-apk): its CI
-downloads both artifacts from this repo's `latest` GitHub Release. The matching
-kernel `vmlinuz-virt` ships from [poroid-kernel](https://github.com/nike64542-byte/poroid-kernel).
+Because the VM boots in **two stages**, and the two stages are different things:
+
+```
+vmlinuz-virt (kernel)
+   └─ initrd.img (Alpine initramfs)  ← boots first, tiny, distro-agnostic
+        └─ mounts /dev/vda (user data) + /dev/vdb (squashfs)
+        └─ switch_root → the real guest OS's /sbin/init
+```
+
+- **`initrd.img` = Alpine initramfs** — a ~40 MB "ignition" stage. It contains
+  `init-podroid`, which mounts the persistent overlay and the squashfs, then
+  hands off to the real rootfs. It is **shared by all distro images** and does
+  **not** need to be rebuilt per distro.
+- **`kali/debian/ubuntu-rootfs.squashfs` = the actual guest OS** — this is the
+  Linux system you log into. Each distro is a separate artifact.
+
+The custom kernel has every needed driver built in (`=y`, no modules), and all
+distro images use the **same OpenRC/sysvinit boot pipeline** (no systemd), so
+the Alpine initramfs, kernel, and boot flow are 100% shared. Only the squashfs
+differs per distro.
+
+## Artifacts
+
+| Artifact | What it is |
+|---|---|
+| `initrd.img` | Alpine aarch64 initramfs (shared boot stage) |
+| `kali-rootfs.squashfs` | Kali Linux (full: podman + docker/lxc + X11 server, OpenRC) |
+| `debian-rootfs.squashfs` | Debian 12 minimal (ssh + podman only, OpenRC) |
+| `ubuntu-rootfs.squashfs` | Ubuntu 24.04 minimal (ssh + podman only, OpenRC) |
+
+All squashfs use zstd compression (the only compressor compiled into the kernel).
 
 ## Build
 
 ```bash
-./build.sh             # both initramfs + rootfs
-./build.sh initramfs   # Alpine initramfs only
-./build.sh rootfs      # Kali squashfs only
+./build.sh initramfs     # Alpine initramfs only
+./build.sh kali          # Kali rootfs only
+./build.sh debian        # Debian minimal rootfs only
+./build.sh ubuntu        # Ubuntu minimal rootfs only
+./build.sh rootfs        # all three distro rootfs
+./build.sh all           # initramfs + all three distro rootfs
 ```
 
 Output lands in `out/`. Requires Docker with arm64 emulation
@@ -25,6 +55,18 @@ Output lands in `out/`. Requires Docker with arm64 emulation
 
 ## CI
 
-- `push` to `main` (when `build-rootfs/**`, `init-podroid`,
-  `Dockerfile.initramfs` change) or `workflow_dispatch` builds both artifacts
-  and uploads them to the `latest` Release.
+One run builds **one** image — pick the `distro` when you trigger manually:
+
+- `workflow_dispatch` → `distro` input: `initramfs` / `kali` / `debian` /
+  `ubuntu` / `all` (default `kali`).
+- `push` to `main` → builds `kali` by default (config change = default distro).
+
+The built artifact is uploaded to the `latest` Release.
+
+## Artifact flow
+
+[poroid-apk](https://github.com/nike64542-byte/poroid-apk) downloads from this
+repo's `latest` Release:
+- always: `initrd.img`
+- plus whichever rootfs the app is configured to boot
+  (`kali-rootfs.squashfs` / `debian-rootfs.squashfs` / `ubuntu-rootfs.squashfs`).
