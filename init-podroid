@@ -1,7 +1,7 @@
 #!/bin/sh
 # Podroid initramfs bootstrap — mounts overlay, switch_root to /sbin/init.
 # All system bringup logic now lives in /etc/init.d/podroid-* services
-# on the Alpine squashfs.
+# on the Debian squashfs.
 set -e
 
 # Ensure mount points exist (defensive: cpio packing can omit empty dirs).
@@ -36,7 +36,7 @@ echo "Mounting storage..." > /dev/console
 [ -d "/lib/modules/$(uname -r)" ] && { depmod -a 2>/dev/null; modprobe virtio_blk 2>/dev/null; }
 
 # /dev/vda = persistent ext4 (user data, container storage)
-# /dev/vdb = read-only Alpine squashfs (system files)
+# /dev/vdb = read-only squashfs (system files)
 mkdir -p /mnt/persist /mnt/lower /mnt/overlay
 
 # Bounded wait for the virtio block nodes: on most boots they already exist

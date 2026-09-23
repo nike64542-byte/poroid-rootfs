@@ -5,8 +5,8 @@
 # overlay + the read-only squashfs, then switch_roots into the real guest OS
 # (/sbin/init inside kali/debian/ubuntu-rootfs.squashfs).
 #
-# Debian (not Alpine) so the whole toolchain stays on one ecosystem. Only the
-# tools init-podroid actually invokes are installed (mount/switch_root/
+# Debian-based boot stage on the same ecosystem as the guest rootfs images.
+# Only the tools init-podroid actually invokes are installed (mount/switch_root/
 # e2fsprogs/kmod/coreutils); podman/ttyd/etc. belong to the guest rootfs, not
 # this boot stage.
 #

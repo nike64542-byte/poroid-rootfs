@@ -6,16 +6,19 @@
 #
 # Consumed by poroid-apk as `ubuntu-rootfs.squashfs`.
 
-# ── Stage 1: cross-compile podroid-* C agents (musl-static aarch64) ──────────
-FROM --platform=linux/arm64 alpine:3.24 AS vsock-builder
-RUN apk add --no-cache musl-dev gcc make linux-headers
+# ── Stage 1: cross-compile podroid-* C agents (static aarch64) ──────────────
+FROM debian:bookworm AS vsock-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross make \
+    && rm -rf /var/lib/apt/lists/*
+ENV CC=aarch64-linux-gnu-gcc
 WORKDIR /work
 COPY vsock-agent /work/vsock-agent
-RUN cd /work/vsock-agent && make CC=gcc
+RUN make -C /work/vsock-agent CC=${CC} clean all
 COPY host-bridge /work/host-bridge
-RUN cd /work/host-bridge && make CC=gcc
+RUN make -C /work/host-bridge CC=${CC} clean all
 COPY overlay-normalize /work/overlay-normalize
-RUN cd /work/overlay-normalize && make CC=gcc
+RUN make -C /work/overlay-normalize CC=${CC} clean all
 
 # ── Stage 2: build the Ubuntu rootfs squashfs ────────────────────────────────
 FROM --platform=linux/arm64 ubuntu:24.04 AS builder

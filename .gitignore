@@ -8,7 +8,7 @@ config-temp/
 # Docker
 .kotlin/
 
-# Alpine rootfs scratch dirs (generated during Docker build)
+# Rootfs scratch dirs (generated during Docker build)
 /bin/
 /etc/
 /lib/

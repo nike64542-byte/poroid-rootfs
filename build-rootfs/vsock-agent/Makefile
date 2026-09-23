@@ -1,5 +1,5 @@
 # build-rootfs/vsock-agent/Makefile
-# musl-static aarch64 build. Invoked from Dockerfile.rootfs's vsock-builder stage.
+# static aarch64 build. Invoked from Dockerfile.rootfs's vsock-builder stage.
 CC      ?= gcc
 # Hardening: the agent parses untrusted host-controlled vsock control lines.
 # -fstack-protector-strong + FORTIFY are defense-in-depth (FORTIFY needs -O,
