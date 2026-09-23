@@ -1,5 +1,5 @@
 #!/bin/bash
-# Podroid guest system builder — produces initrd.img (Alpine initramfs) and
+# Podroid guest system builder — produces initrd.img (Debian initramfs) and
 # guest rootfs squashfs images (kali / debian / ubuntu, arm64).
 #
 # Usage: ./build.sh [initramfs|rootfs|all] [SYSTEM_VERSION]
@@ -15,7 +15,7 @@ log() { printf "\033[1;34m==>\033[0m %s\n" "$*"; }
 mkdir -p "${OUT}"
 
 build_initramfs() {
-    log "Building Alpine initramfs (Docker)..."
+    log "Building Debian initramfs (Docker)..."
     docker build --network=host \
         -t podroid-initramfs-builder \
         -f "${SCRIPT_DIR}/Dockerfile.initramfs" \
