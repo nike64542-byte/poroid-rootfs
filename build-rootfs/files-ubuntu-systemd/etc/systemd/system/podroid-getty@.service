@@ -1,0 +1,17 @@
+[Unit]
+Description=Podroid terminal getty on %I
+After=podroid-bootstrap.service dev-%i.device
+Requires=podroid-bootstrap.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/libexec/podroid/podroid-getty.sh %i
+Restart=always
+RestartSec=2
+TTYPath=/dev/%i
+TTYReset=yes
+TTYVHangup=yes
+KillMode=process
+
+[Install]
+WantedBy=getty.target

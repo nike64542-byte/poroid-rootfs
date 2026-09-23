@@ -1,0 +1,14 @@
+[Unit]
+Description=Podroid dynamic multi-window terminal setup (gettys + resize daemons)
+After=podroid-bootstrap.service local-fs.target
+Requires=podroid-bootstrap.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/podroid-terminals
+Restart=on-failure
+RestartSec=3
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

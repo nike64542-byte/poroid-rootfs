@@ -1,0 +1,12 @@
+[Unit]
+Description=Podroid VM networking (10.0.2.15 via SLIRP)
+After=podroid-bootstrap.service local-fs.target
+Requires=podroid-bootstrap.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/libexec/podroid/podroid-network.sh
+
+[Install]
+WantedBy=multi-user.target

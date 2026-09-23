@@ -1,0 +1,13 @@
+[Unit]
+Description=Podroid VM system bootstrap (cgroups, modules, devpts, sysctl)
+DefaultDependencies=no
+After=local-fs.target
+Before=sysinit.target podroid-network.service podroid-hostd.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/libexec/podroid/podroid-bootstrap.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target

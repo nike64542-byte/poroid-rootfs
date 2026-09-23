@@ -1,8 +1,8 @@
 # build-rootfs/Dockerfile.rootfs-ubuntu
 #
 # Builds a MINIMAL Podroid guest rootfs as squashfs from Ubuntu (24.04 noble)
-# arm64. Same initramfs/OpenRC boot pipeline as the Kali image — no systemd,
-# no desktop, just ssh + podman container runtime + the Podroid bridge agents.
+# arm64. systemd as init (Ubuntu's repos dropped OpenRC), podman + Podroid
+# bridge agents as systemd units. No desktop.
 #
 # Consumed by poroid-apk as `ubuntu-rootfs.squashfs`.
 
@@ -49,8 +49,9 @@ ENV SYSTEM_VERSION=${SYSTEM_VERSION}
 
 # 1. Install packages + configure rootfs (runs in the container root /)
 COPY files /work/files
-COPY build-rootfs-minimal.sh /work/build-rootfs-minimal.sh
-RUN chmod +x /work/build-rootfs-minimal.sh && DISTRO=ubuntu /work/build-rootfs-minimal.sh
+COPY files-ubuntu-systemd /work/files-ubuntu-systemd
+COPY build-rootfs-ubuntu.sh /work/build-rootfs-ubuntu.sh
+RUN chmod +x /work/build-rootfs-ubuntu.sh && DISTRO=ubuntu /work/build-rootfs-ubuntu.sh
 
 # 2. rsync the installed system to /work/rootfs (done by build-rootfs-minimal.sh above)
 # 3. Squash the clean rootfs directory (not the container root /)

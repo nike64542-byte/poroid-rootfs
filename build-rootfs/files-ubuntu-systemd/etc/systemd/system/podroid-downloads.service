@@ -1,0 +1,16 @@
+[Unit]
+Description=Podroid AVF Downloads share (9p over vsock, AVF only)
+After=podroid-bootstrap.service podroid-network.service podroid-vsock.service
+Requires=podroid-bootstrap.service
+ConditionPathExists=/dev/vsock
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/podroid-vsock-agent downloads-9p
+Restart=on-failure
+RestartSec=2
+StandardOutput=append:/var/log/podroid-downloads.log
+StandardError=append:/var/log/podroid-downloads.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,12 @@
+[Unit]
+Description=Podroid VM ready marker (consumed by Android boot detector)
+After=podroid-bootstrap.service podroid-network.service podroid-hostd.service podroid-terminals.service ssh.service
+Wants=podroid-network.service podroid-hostd.service podroid-terminals.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/bin/sh -c 'if [ -x /usr/local/bin/podroid-update-stats ]; then /usr/local/bin/podroid-update-stats || true; fi; for n in dropbear Xvnc pulseaudio podroid-vsock-agent dnsmasq; do for p in $(pgrep -x "$n" 2>/dev/null); do echo -1000 > /proc/$p/oom_score_adj 2>/dev/null || true; done; done; echo "Starting SSH..." > /dev/console; echo "Almost ready..." > /dev/console; echo "Ready!" > /dev/console'
+
+[Install]
+WantedBy=multi-user.target

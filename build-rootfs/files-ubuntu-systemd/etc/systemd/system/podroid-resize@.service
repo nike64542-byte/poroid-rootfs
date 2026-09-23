@@ -1,0 +1,14 @@
+[Unit]
+Description=Podroid terminal resize daemon for %I (ctrl -> target)
+After=podroid-bootstrap.service dev-%i.device
+Requires=podroid-bootstrap.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/podroid-resize %i
+Restart=always
+RestartSec=2
+KillMode=process
+
+[Install]
+WantedBy=multi-user.target

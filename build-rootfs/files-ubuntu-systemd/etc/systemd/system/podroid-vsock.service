@@ -1,0 +1,16 @@
+[Unit]
+Description=Podroid vsock control + port forwarding agent (AVF only)
+After=podroid-bootstrap.service local-fs.target
+Requires=podroid-bootstrap.service
+ConditionPathExists=/dev/vsock
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/podroid-vsock-agent
+Restart=on-failure
+RestartSec=2
+StandardOutput=append:/var/log/podroid-vsock-agent.log
+StandardError=append:/var/log/podroid-vsock-agent.log
+
+[Install]
+WantedBy=multi-user.target
