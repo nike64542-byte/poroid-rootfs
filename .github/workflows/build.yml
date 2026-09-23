@@ -93,7 +93,9 @@ jobs:
           retention-days: 30
 
       - name: 上传到 Release
-        if: inputs.push_to_release != false
+        # push 事件没有 inputs（push_to_release 为空）→ 默认上传；
+        # workflow_dispatch 时按用户勾选的 push_to_release 决定。
+        if: ${{ github.event.inputs.push_to_release != 'false' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
