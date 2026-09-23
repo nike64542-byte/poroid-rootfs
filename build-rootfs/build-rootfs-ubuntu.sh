@@ -28,10 +28,15 @@ echo "build-rootfs-ubuntu.sh: building MINIMAL ${DISTRO} rootfs (systemd)"
 
 # ── 1. Configure apt sources ─────────────────────────────────────────────────
 # arm64 Ubuntu uses ports.ubuntu.com (archive.ubuntu.com is amd64-only).
+# Include noble-updates + noble-security: the ubuntu:24.04 base image ships
+# point-release packages (e.g. libsystemd0 *.17); building against bare noble
+# makes systemd's strict `=x.y` dependency unresolvable (broken packages).
 rm -rf /etc/apt/sources.list.d
 mkdir -p /etc/apt/sources.list.d
 cat > /etc/apt/sources.list <<'EOF'
 deb http://ports.ubuntu.com/ubuntu-ports noble main universe
+deb http://ports.ubuntu.com/ubuntu-ports noble-updates main universe
+deb http://ports.ubuntu.com/ubuntu-ports noble-security main universe
 deb-src http://ports.ubuntu.com/ubuntu-ports noble main universe
 EOF
 apt-get update
@@ -227,6 +232,8 @@ rm -rf /tmp/* /var/tmp/* 2>/dev/null || true
 UBUNTU_MIRROR="${UBUNTU_MIRROR:-https://mirrors.ustc.edu.cn/ubuntu-ports}"
 cat > /etc/apt/sources.list <<EOF
 deb $UBUNTU_MIRROR noble main universe
+deb $UBUNTU_MIRROR noble-updates main universe
+deb $UBUNTU_MIRROR noble-security main universe
 deb-src $UBUNTU_MIRROR noble main universe
 EOF
 
