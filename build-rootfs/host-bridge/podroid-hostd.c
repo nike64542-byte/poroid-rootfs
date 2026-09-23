@@ -21,6 +21,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <libgen.h>
+#include <sys/socket.h>
 #include <linux/vm_sockets.h>
 #include <poll.h>
 #include <signal.h>

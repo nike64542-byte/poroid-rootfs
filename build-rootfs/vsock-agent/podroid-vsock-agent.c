@@ -42,6 +42,7 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <sys/socket.h>
 #include <linux/vm_sockets.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
