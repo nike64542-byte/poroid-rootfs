@@ -1,7 +1,11 @@
 #!/bin/sh
 # Podroid VM networking — systemd edition. Port of the OpenRC podroid-network
 # start() body (SLIRP static IP on QEMU, DHCP on AVF, USB NIC passthrough).
-set -eu
+#
+# No `set -e`: matches the OpenRC original — intermediate commands (ip addr
+# add on a re-run, tc, etc.) are best-effort; only the explicit exit-1 checks
+# below (no NIC / no address) mark the service failed, like eend 1 there.
+set -u
 
 echo "Configuring containers..." > /dev/console
 ip link set lo up 2>/dev/null

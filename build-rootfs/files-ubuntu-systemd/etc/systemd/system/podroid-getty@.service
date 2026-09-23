@@ -1,6 +1,7 @@
 [Unit]
 Description=Podroid terminal getty on %I
 After=podroid-bootstrap.service dev-%i.device
+Before=getty.target
 Requires=podroid-bootstrap.service
 
 [Service]
@@ -8,6 +9,11 @@ Type=simple
 ExecStart=/usr/local/libexec/podroid/podroid-getty.sh %i
 Restart=always
 RestartSec=2
+# Match systemd's stock serial-getty@.service: without StandardInput/Output
+# =tty, TTYPath/TTYReset/TTYVHangup are no-ops (stdio lands on /dev/null)
+# and agetty doesn't inherit the tty as its stdio/ctty.
+StandardInput=tty
+StandardOutput=tty
 TTYPath=/dev/%i
 TTYReset=yes
 TTYVHangup=yes

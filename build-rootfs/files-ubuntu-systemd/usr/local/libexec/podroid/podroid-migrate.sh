@@ -2,7 +2,10 @@
 # Podroid system migrations — systemd edition (port of the OpenRC
 # podroid-migrate start()). Runs versioned upgrade scripts once, before other
 # Podroid services start.
-set -eu
+#
+# No `set -e`: mirrors OpenRC's eend 0 — a failed migration script must not
+# kill the oneshot mid-flight (system-version bookkeeping still completes).
+set -u
 
 SYSVER_FILE="/etc/podroid/system-version"
 APPLIED_FILE="/mnt/persist/.podroid/applied-version"

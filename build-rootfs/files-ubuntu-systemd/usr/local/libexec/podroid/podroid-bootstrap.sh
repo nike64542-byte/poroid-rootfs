@@ -2,7 +2,13 @@
 # Podroid VM system bootstrap — systemd edition (Ubuntu rootfs).
 # Port of the OpenRC podroid-bootstrap start() body, minus OpenRC plumbing.
 # Runs as a Type=oneshot systemd service.
-set -eu
+#
+# No `set -e`: this mirrors the OpenRC original (best-effort commands, eend 0
+# / trailing `exit 0` on success). The Ubuntu image ships no /lib/modules, so
+# `depmod`/`modprobe` legitimately fail here — with errexit they killed this
+# oneshot, and `Requires=podroid-bootstrap` took down getty/network/hostd/
+# ready with it (black terminal). Only genuine failures should exit non-zero.
+set -u
 
 echo "Loading kernel modules..." > /dev/console
 
