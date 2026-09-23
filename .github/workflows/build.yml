@@ -76,6 +76,25 @@ jobs:
             *) echo "未知 distro: ${DISTRO}"; exit 1 ;;
           esac
 
+      - name: 生成带版本号文件名
+        run: |
+          # 发行版本身版本号（对应当前 base 镜像）：
+          #   kali   = rolling（滚动版无固定号，Kali 官方语义）
+          #   debian = 12  (bookworm)
+          #   ubuntu = 24.04 (noble)
+          # initrd.img 是共享引导层，不分发行版，保持原名。
+          case "${DISTRO}" in
+            kali)   [ -f out/kali-rootfs.squashfs ]   && cp out/kali-rootfs.squashfs   out/kali-rootfs-rolling.squashfs ;;
+            debian) [ -f out/debian-rootfs.squashfs ] && cp out/debian-rootfs.squashfs out/debian-rootfs-12.squashfs ;;
+            ubuntu) [ -f out/ubuntu-rootfs.squashfs ] && cp out/ubuntu-rootfs.squashfs out/ubuntu-rootfs-24.04.squashfs ;;
+            all)
+              [ -f out/kali-rootfs.squashfs ]   && cp out/kali-rootfs.squashfs   out/kali-rootfs-rolling.squashfs
+              [ -f out/debian-rootfs.squashfs ] && cp out/debian-rootfs.squashfs out/debian-rootfs-12.squashfs
+              [ -f out/ubuntu-rootfs.squashfs ] && cp out/ubuntu-rootfs.squashfs out/ubuntu-rootfs-24.04.squashfs
+              ;;
+          esac
+          ls -lh out/
+
       - name: 清理 Docker 镜像
         run: |
           docker rmi -f podroid-rootfs-kali podroid-rootfs-debian podroid-rootfs-ubuntu podroid-initramfs-builder 2>/dev/null || true
