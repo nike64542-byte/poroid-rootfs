@@ -15,13 +15,13 @@ echo "build-rootfs-zypper.sh: building MINIMAL ${DISTRO} rootfs (systemd)"
 zypper --non-interactive --gpg-auto-import-keys refresh
 zypper --non-interactive install --no-recommends -y \
     bash coreutils findutils gawk grep sed \
-    util-linux procps kmod shadow passwd \
+    util-linux procps kmod shadow \
     openssl ca-certificates curl wget \
     xz gzip tar file rsync squashfs \
     e2fsprogs iproute2 iputils bind-utils net-tools \
-    iptables nftables bridge-utils dhclient \
+    iptables nftables bridge-utils dhcp-client \
     openssh \
-    sudo vim-minimal less \
+    sudo vim less \
     dbus-1 usbutils pciutils
 
 # ── 2. Podman container runtime ─────────────────────────────────────────────

@@ -18,7 +18,7 @@ DISTRO="${DISTRO:-fedora}"
 echo "build-rootfs-dnf.sh: building MINIMAL ${DISTRO} rootfs (systemd)"
 
 # ── 1. Base + tools + squashfs tooling (no weak deps, no docs) ───────────────
-dnf -y install --setopt=install_weak_deps=False --nodocs \
+dnf -y install --allowerasing --setopt=install_weak_deps=False --nodocs \
     bash coreutils findutils gawk grep sed \
     util-linux procps kmod shadow passwd \
     openssl ca-certificates curl wget \
@@ -30,7 +30,7 @@ dnf -y install --setopt=install_weak_deps=False --nodocs \
     dbus usbutils pciutils
 
 # ── 2. Podman container runtime (minimal; dnf pulls the rest as deps) ────────
-dnf -y install --setopt=install_weak_deps=False --nodocs \
+dnf -y install --allowerasing --setopt=install_weak_deps=False --nodocs \
     podman crun fuse-overlayfs libcap
 
 # ── 3. Strip man/docs/locale ─────────────────────────────────────────────────

@@ -35,15 +35,47 @@ mkdir -p "$R"
 curl -fsSL "https://distfiles.gentoo.org/releases/arm64/autobuilds/${PTR}" \
     | tar -xJp -C "$R"
 
-# ── 1. Preflight: device nodes + DNS + emerge/sinit must exist ──────────────
+# ── 1. Preflight: device nodes + DNS + rchroot helper ───────────────────────
 mkdir -p "$R/dev" "$R/proc" "$R/sys" "$R/tmp" "$R/etc" "$R/etc/portage"
 for n in urandom null zero tty random console ptmx; do
     [ -e "/dev/$n" ] && cp -a "/dev/$n" "$R/dev/$n" 2>/dev/null || true
 done
+ln -sfn /proc/self/fd "$R/dev/fd"
+ln -sfn /proc/self/fd/0 "$R/dev/stdin"
+ln -sfn /proc/self/fd/1 "$R/dev/stdout"
+ln -sfn /proc/self/fd/2 "$R/dev/stderr"
+
+rm -f "$R/etc/resolv.conf"
 cp /etc/resolv.conf "$R/etc/resolv.conf"
 
-if ! chroot "$R" emerge --version; then
-    echo "FATAL: chroot emerge does not run (binfmt/qemu or stage3 issue)" >&2
+# Docker RUN lacks CAP_SYS_ADMIN. unshare -Urm opens a user+mount ns where
+# mount(2) works; proc/sys/dev are set up per call and die with the ns.
+rchroot() {
+    _r="$1"; shift
+    if unshare -Urm true 2>/dev/null; then
+        unshare -Urm sh -c '
+            set -e
+            mount --make-rprivate / 2>/dev/null || true
+            mount -t proc proc "$1/proc"
+            mount -t sysfs sysfs "$1/sys" 2>/dev/null || true
+            mount --bind /dev "$1/dev" 2>/dev/null || true
+            [ -e "$1/dev/fd" ] || ln -sfn /proc/self/fd "$1/dev/fd"
+            [ -e "$1/dev/stdin" ] || ln -sfn /proc/self/fd/0 "$1/dev/stdin"
+            [ -e "$1/dev/stdout" ] || ln -sfn /proc/self/fd/1 "$1/dev/stdout"
+            [ -e "$1/dev/stderr" ] || ln -sfn /proc/self/fd/2 "$1/dev/stderr"
+            R="$1"; shift
+            exec chroot "$R" "$@"
+        ' sh "$_r" "$@"
+    else
+        # Fallback: privileged builder (direct mount) or hope /proc already ok
+        mount -t proc proc "$_r/proc" 2>/dev/null || true
+        mount --bind /dev "$_r/dev" 2>/dev/null || true
+        chroot "$_r" "$@"
+    fi
+}
+
+if ! rchroot "$R" emerge --version; then
+    echo "FATAL: rchroot emerge does not run (unshare/qemu/stage3 issue)" >&2
     exit 1
 fi
 if [ ! -e "$R/sbin/init" ] && [ ! -e "$R/lib/sysvinit/init" ] \
@@ -67,7 +99,7 @@ echo "binhost: $BINHOST_URL"
 
 # ── 3. Probe: podman must install as BINPKG within 10 min ───────────────────
 #      (source fallback under qemu trips `timeout` → red FATAL, per spec §8)
-if ! timeout 600 chroot "$R" env \
+if ! timeout 600 rchroot "$R" env \
         FEATURES="-sandbox -usersandbox" \
         EMERGE_DEFAULT_OPTS="--getbinpkg -v --ask=n" \
         emerge --oneshot app-emulation/podman; then
@@ -78,7 +110,7 @@ if ! timeout 600 chroot "$R" env \
 fi
 
 # ── 4. Full package set (all via binpkg; sandbox off — chroot, no /proc) ────
-chroot "$R" env \
+rchroot "$R" env \
     FEATURES="-sandbox -usersandbox" \
     EMERGE_DEFAULT_OPTS="--getbinpkg -v --ask=n" \
     emerge --oneshot \
@@ -86,11 +118,11 @@ chroot "$R" env \
     net-misc/dropbear app-admin/sudo net-misc/dhclient net-misc/iptables \
     sys-apps/usbutils sys-apps/pciutils app-misc/ca-certificates
 
-if ! chroot "$R" command -v dhclient >/dev/null 2>&1; then
+if ! rchroot "$R" command -v dhclient >/dev/null 2>&1; then
     echo "FATAL: dhclient missing after emerge" >&2
     exit 1
 fi
-chroot "$R" passwd -l root 2>/dev/null || true
+rchroot "$R" passwd -l root 2>/dev/null || true
 
 # ── 5. Strip man/docs/locale + caches ───────────────────────────────────────
 rm -rf "$R"/usr/share/man "$R"/usr/share/doc "$R"/usr/share/locale \
