@@ -126,6 +126,8 @@ jobs:
         uses: actions/checkout@v4
       - name: 验证 getty wrapper
         run: sh build-rootfs/test-getty-wrapper.sh
+      - name: 验证 Gentoo probe timeout
+        run: sh build-rootfs/test-gentoo-probe-timeout.sh
       - name: 释放磁盘空间
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc 2>/dev/null || true

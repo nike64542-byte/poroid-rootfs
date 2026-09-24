@@ -32,7 +32,7 @@ if ! curl -fsSI "$BINHOST_URL" >/dev/null; then
     exit 1
 fi
 
-if ! timeout 600 emerge --oneshot =app-containers/podman-5.8.2; then
+if ! timeout 1800 emerge --oneshot =app-containers/podman-5.8.2; then
     echo "FATAL: podman binpkg probe failed/timed out" >&2
     exit 1
 fi
