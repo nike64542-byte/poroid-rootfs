@@ -153,7 +153,7 @@ done
 # systemd-only bootstrap/network/migrate scripts.
 for f in podroid-bootstrap.sh podroid-network.sh podroid-migrate.sh \
          podroid-getty.sh; do
-    cp "/work/files-ubuntu-systemd/usr/local/libexec/podroid/$f" \
+    cp "/work/files-systemd/usr/local/libexec/podroid/$f" \
        "/usr/local/libexec/podroid/$f"
     chmod +x "/usr/local/libexec/podroid/$f"
 done
@@ -173,7 +173,7 @@ for f in podroid-bootstrap.service podroid-migrate.service podroid-network.servi
          podroid-hostd.service podroid-terminals.service podroid-ready.service \
          podroid-vsock.service podroid-downloads.service podroid-getty@.service \
          podroid-resize@.service; do
-    cp "/work/files-ubuntu-systemd/etc/systemd/system/$f" "/etc/systemd/system/$f"
+    cp "/work/files-systemd/etc/systemd/system/$f" "/etc/systemd/system/$f"
 done
 
 # Config + migration dirs.

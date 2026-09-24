@@ -1,0 +1,49 @@
+# build-rootfs/Dockerfile.rootfs-gentoo
+#
+# Builds the Podroid guest rootfs as squashfs from Gentoo stage3-arm64-openrc.
+# OpenRC + sysvinit boot path — shares the Kali/Debian files/ overlay and the
+# shared initramfs. Consumed by poroid-apk as `gentoo-rootfs.squashfs`.
+
+# ── Stage 1: cross-compile podroid-* C agents (static aarch64) ──────────────
+FROM debian:bookworm AS vsock-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross make \
+    && rm -rf /var/lib/apt/lists/*
+ENV CC=aarch64-linux-gnu-gcc
+WORKDIR /work
+COPY vsock-agent /work/vsock-agent
+RUN make -C /work/vsock-agent CC=${CC} clean all
+COPY host-bridge /work/host-bridge
+RUN make -C /work/host-bridge CC=${CC} clean all
+COPY overlay-normalize /work/overlay-normalize
+RUN make -C /work/overlay-normalize CC=${CC} clean all
+
+# ── Stage 2: fetch stage3 + chroot emerge + squashfs ────────────────────────
+FROM --platform=linux/arm64 debian:bookworm AS builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl ca-certificates xz-utils squashfs-tools rsync libcap2-bin \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /work
+
+COPY --from=vsock-builder /work/vsock-agent/podroid-vsock-agent /usr/local/bin/podroid-vsock-agent
+COPY --from=vsock-builder /work/host-bridge/podroid-hostd /usr/local/bin/podroid-hostd
+COPY --from=vsock-builder /work/overlay-normalize/podroid-overlay-normalize /usr/local/bin/podroid-overlay-normalize
+RUN chmod +x /usr/local/bin/podroid-vsock-agent /usr/local/bin/podroid-hostd \
+             /usr/local/bin/podroid-overlay-normalize
+
+ARG SYSTEM_VERSION=0
+ENV SYSTEM_VERSION=${SYSTEM_VERSION}
+
+COPY files /work/files
+COPY build-rootfs-gentoo.sh /work/build-rootfs-gentoo.sh
+RUN chmod +x /work/build-rootfs-gentoo.sh && SYSTEM_VERSION=${SYSTEM_VERSION} /work/build-rootfs-gentoo.sh
+
+RUN mksquashfs /work/rootfs /work/gentoo-rootfs.squashfs \
+    -comp zstd -Xcompression-level 19 -all-root -noappend \
+    -e /proc /sys /dev /run /tmp /var/tmp /work \
+       /var/cache/distfiles /var/cache/binpkgs /var/log \
+       /usr/share/man /usr/share/doc /usr/share/locale /usr/share/info
+
+FROM scratch AS export
+COPY --from=builder /work/gentoo-rootfs.squashfs /gentoo-rootfs.squashfs

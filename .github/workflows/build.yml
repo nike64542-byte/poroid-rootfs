@@ -8,6 +8,7 @@ on:
       - 'init-podroid'
       - 'Dockerfile.initramfs'
       - 'build.sh'
+      - '.github/workflows/build.yml'
   workflow_dispatch:
     inputs:
       distro:
@@ -20,6 +21,13 @@ on:
           - kali
           - debian
           - ubuntu
+          - fedora
+          - rocky
+          - alma
+          - opensuse
+          - arch
+          - manjaro
+          - gentoo
           - all
       system_version:
         description: '系统版本号 (SYSTEM_VERSION)'
@@ -28,7 +36,7 @@ on:
         type: string
       push_to_release:
         description: '上传到 GitHub Release'
-        required: false
+        required: true
         default: true
         type: boolean
 
@@ -37,90 +45,132 @@ env:
   SYSTEM_VERSION: ${{ github.event.inputs.system_version || '0' }}
 
 jobs:
-  build-rootfs:
+  resolve:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    outputs:
+      list: ${{ steps.set.outputs.list }}
+    steps:
+      - name: 展开 distro → 矩阵数组
+        id: set
+        env:
+          D: ${{ env.DISTRO }}
+        run: |
+          case "$D" in
+            initramfs)
+              echo 'list=[]' >> "$GITHUB_OUTPUT" ;;
+            all)
+              echo 'list=["kali","debian","ubuntu","fedora","rocky","alma","opensuse","arch","manjaro","gentoo"]' >> "$GITHUB_OUTPUT" ;;
+            *)
+              echo "list=[\"$D\"]" >> "$GITHUB_OUTPUT" ;;
+          esac
+          echo "matrix for $D:"; cat "$GITHUB_OUTPUT"
+      - name: 确保 Release 存在（单点创建，避免并行 job 竞争）
+        if: ${{ env.DISTRO != 'initramfs' && github.event.inputs.push_to_release != 'false' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view latest >/dev/null 2>&1 || \
+            gh release create latest --title "最新系统镜像" \
+              --notes "System $SYSTEM_VERSION ($DISTRO)" --prerelease
+
+  initramfs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
     env:
       DEBIAN_FRONTEND: noninteractive
+      DISTRO: initramfs
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+      - name: 释放磁盘空间
+        run: sudo rm -rf /usr/share/dotnet /opt/ghc 2>/dev/null || true
+      - name: 构建 initramfs
+        run: ./build.sh initramfs
+      - name: 上传系统镜像产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: podroid-system-initramfs
+          path: out/initrd.img
+          if-no-files-found: error
+          retention-days: 30
+      - name: 上传到 Release
+        if: ${{ github.event.inputs.push_to_release != 'false' }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload latest out/initrd.img --clobber
 
+  build-rootfs:
+    needs: resolve
+    if: ${{ needs.resolve.outputs.list != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      matrix:
+        distro: ${{ fromJSON(needs.resolve.outputs.list) }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      DISTRO: ${{ matrix.distro }}
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
       - name: 释放磁盘空间
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc 2>/dev/null || true
           df -h
-
       - name: 设置 QEMU (arm64)
         uses: docker/setup-qemu-action@v3
         with:
           platforms: arm64
-
       - name: 设置 Docker Buildx
         uses: docker/setup-buildx-action@v3
-
       - name: 构建目标镜像
         run: |
           echo "DISTRO=${DISTRO} SYSTEM_VERSION=${SYSTEM_VERSION}"
-          case "${DISTRO}" in
-            initramfs) ./build.sh initramfs ;;
-            kali)      ./build.sh initramfs && ./build.sh kali ;;
-            debian)    ./build.sh initramfs && ./build.sh debian ;;
-            ubuntu)    ./build.sh initramfs && ./build.sh ubuntu ;;
-            all)
-              ./build.sh initramfs
-              ./build.sh kali
-              ./build.sh debian
-              ./build.sh ubuntu
-              ;;
-            *) echo "未知 distro: ${DISTRO}"; exit 1 ;;
-          esac
-
+          ./build.sh "${DISTRO}"
       - name: 生成带版本号文件名
         run: |
-          # 发行版本身版本号（对应当前 base 镜像）：
-          #   kali   = rolling（滚动版无固定号，Kali 官方语义）
-          #   debian = 12  (bookworm)
-          #   ubuntu = 24.04 (noble)
-          # initrd.img 是共享引导层，不分发行版，保持原名。
           case "${DISTRO}" in
-            kali)   [ -f out/kali-rootfs.squashfs ]   && cp out/kali-rootfs.squashfs   out/kali-rootfs-rolling.squashfs ;;
-            debian) [ -f out/debian-rootfs.squashfs ] && cp out/debian-rootfs.squashfs out/debian-rootfs-12.squashfs ;;
-            ubuntu) [ -f out/ubuntu-rootfs.squashfs ] && cp out/ubuntu-rootfs.squashfs out/ubuntu-rootfs-24.04.squashfs ;;
-            all)
-              [ -f out/kali-rootfs.squashfs ]   && cp out/kali-rootfs.squashfs   out/kali-rootfs-rolling.squashfs
-              [ -f out/debian-rootfs.squashfs ] && cp out/debian-rootfs.squashfs out/debian-rootfs-12.squashfs
-              [ -f out/ubuntu-rootfs.squashfs ] && cp out/ubuntu-rootfs.squashfs out/ubuntu-rootfs-24.04.squashfs
-              ;;
+            kali)     cp out/kali-rootfs.squashfs     out/kali-rootfs-rolling.squashfs ;;
+            debian)   cp out/debian-rootfs.squashfs   out/debian-rootfs-12.squashfs ;;
+            ubuntu)   cp out/ubuntu-rootfs.squashfs   out/ubuntu-rootfs-24.04.squashfs ;;
+            fedora)   cp out/fedora-rootfs.squashfs   out/fedora-rootfs-42.squashfs ;;
+            rocky)    cp out/rocky-rootfs.squashfs    out/rocky-rootfs-9.squashfs ;;
+            alma)     cp out/alma-rootfs.squashfs     out/alma-rootfs-9.squashfs ;;
+            opensuse) cp out/opensuse-rootfs.squashfs out/opensuse-rootfs-15.6.squashfs ;;
+            arch)     cp out/arch-rootfs.squashfs     out/arch-rootfs-rolling.squashfs ;;
+            manjaro)  cp out/manjaro-rootfs.squashfs  out/manjaro-rootfs-rolling.squashfs ;;
+            gentoo)   cp out/gentoo-rootfs.squashfs   out/gentoo-rootfs-rolling.squashfs ;;
+            *) echo "未知 distro: ${DISTRO}"; exit 1 ;;
           esac
           ls -lh out/
-
       - name: 清理 Docker 镜像
         run: |
-          docker rmi -f podroid-rootfs-kali podroid-rootfs-debian podroid-rootfs-ubuntu podroid-initramfs-builder 2>/dev/null || true
+          docker rmi -f "podroid-rootfs-${DISTRO}" 2>/dev/null || true
           docker system prune -f 2>/dev/null || true
           df -h /
-
       - name: 上传系统镜像产物
         uses: actions/upload-artifact@v4
         with:
           name: podroid-system-${{ env.DISTRO }}
           path: |
-            out/initrd.img
-            out/*-rootfs.squashfs
+            out/*rootfs*.squashfs
           if-no-files-found: error
           retention-days: 30
-
       - name: 上传到 Release
-        # push 事件没有 inputs（push_to_release 为空）→ 默认上传；
-        # workflow_dispatch 时按用户勾选的 push_to_release 决定。
         if: ${{ github.event.inputs.push_to_release != 'false' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view latest >/dev/null 2>&1 || \
-            gh release create latest --title "最新系统镜像" --notes "System $SYSTEM_VERSION ($DISTRO)" --prerelease
-          # 只上传本次构建的产物，用 --clobber 覆盖同名旧文件
-          for f in out/initrd.img out/*-rootfs.squashfs; do
-            [ -f "$f" ] && gh release upload latest "$f" --clobber || true
+          # Glob hits base name AND versioned copy. NO `|| true` — a failed
+          # upload must turn the job red (historical bug: swallowed errors
+          # shipped "green" runs with missing Release assets).
+          shopt -s nullglob
+          files=(out/*rootfs*.squashfs)
+          if [ ${#files[@]} -eq 0 ]; then
+            echo "FATAL: no rootfs assets matched out/*rootfs*.squashfs" >&2
+            exit 1
+          fi
+          for f in "${files[@]}"; do
+            gh release upload latest "$f" --clobber
           done

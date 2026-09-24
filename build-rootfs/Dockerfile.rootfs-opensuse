@@ -1,0 +1,47 @@
+# build-rootfs/Dockerfile.rootfs-opensuse
+#
+# Builds the Podroid guest rootfs as squashfs from openSUSE Leap 15.6 arm64.
+# systemd init (shared files-systemd/ overlay), podman + Podroid bridge
+# agents. Consumed by poroid-apk as `opensuse-rootfs.squashfs`.
+
+# ── Stage 1: cross-compile podroid-* C agents (static aarch64) ──────────────
+FROM debian:bookworm AS vsock-builder
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc-aarch64-linux-gnu binutils-aarch64-linux-gnu libc6-dev-arm64-cross make \
+    && rm -rf /var/lib/apt/lists/*
+ENV CC=aarch64-linux-gnu-gcc
+WORKDIR /work
+COPY vsock-agent /work/vsock-agent
+RUN make -C /work/vsock-agent CC=${CC} clean all
+COPY host-bridge /work/host-bridge
+RUN make -C /work/host-bridge CC=${CC} clean all
+COPY overlay-normalize /work/overlay-normalize
+RUN make -C /work/overlay-normalize CC=${CC} clean all
+
+# ── Stage 2: build the openSUSE rootfs squashfs ─────────────────────────────
+FROM --platform=linux/arm64 opensuse/leap:15.6 AS builder
+
+WORKDIR /work
+
+COPY --from=vsock-builder /work/vsock-agent/podroid-vsock-agent /usr/local/bin/podroid-vsock-agent
+COPY --from=vsock-builder /work/host-bridge/podroid-hostd /usr/local/bin/podroid-hostd
+COPY --from=vsock-builder /work/overlay-normalize/podroid-overlay-normalize /usr/local/bin/podroid-overlay-normalize
+RUN chmod +x /usr/local/bin/podroid-vsock-agent /usr/local/bin/podroid-hostd \
+             /usr/local/bin/podroid-overlay-normalize
+
+ARG SYSTEM_VERSION=0
+ENV SYSTEM_VERSION=${SYSTEM_VERSION}
+
+COPY files /work/files
+COPY files-systemd /work/files-systemd
+COPY build-rootfs-zypper.sh /work/build-rootfs-zypper.sh
+RUN chmod +x /work/build-rootfs-zypper.sh && DISTRO=opensuse /work/build-rootfs-zypper.sh
+
+RUN mksquashfs /work/rootfs /work/opensuse-rootfs.squashfs \
+    -comp zstd -Xcompression-level 19 -all-root -noappend \
+    -e /proc /sys /dev /run /tmp /var/tmp /work \
+       /var/cache/zypp /var/log \
+       /usr/share/man /usr/share/doc /usr/share/locale /usr/share/info
+
+FROM scratch AS export
+COPY --from=builder /work/opensuse-rootfs.squashfs /opensuse-rootfs.squashfs

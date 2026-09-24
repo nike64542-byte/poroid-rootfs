@@ -1,9 +1,10 @@
 #!/bin/bash
 # Podroid guest system builder — produces initrd.img (Debian initramfs) and
-# guest rootfs squashfs images (kali / debian / ubuntu, arm64).
+# guest rootfs squashfs images (kali / debian / ubuntu + 7 new distros, arm64).
 #
 # Usage: ./build.sh [initramfs|rootfs|all] [SYSTEM_VERSION]
-#   rootfs variants: kali, debian, ubuntu (default: all three)
+#   rootfs variants: kali, debian, ubuntu, fedora, rocky, alma, opensuse,
+#                    arch, manjaro, gentoo (default: all ten)
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,6 +33,13 @@ build_distro_rootfs() {
         kali)   dockerfile="Dockerfile.rootfs";  outfile="kali-rootfs.squashfs" ;;
         debian) dockerfile="Dockerfile.rootfs-debian";  outfile="debian-rootfs.squashfs" ;;
         ubuntu) dockerfile="Dockerfile.rootfs-ubuntu";  outfile="ubuntu-rootfs.squashfs" ;;
+        fedora)  dockerfile="Dockerfile.rootfs-fedora";  outfile="fedora-rootfs.squashfs" ;;
+        rocky)   dockerfile="Dockerfile.rootfs-rocky";   outfile="rocky-rootfs.squashfs" ;;
+        alma)    dockerfile="Dockerfile.rootfs-alma";    outfile="alma-rootfs.squashfs" ;;
+        opensuse) dockerfile="Dockerfile.rootfs-opensuse"; outfile="opensuse-rootfs.squashfs" ;;
+        arch)     dockerfile="Dockerfile.rootfs-arch";     outfile="arch-rootfs.squashfs" ;;
+        manjaro)  dockerfile="Dockerfile.rootfs-manjaro";  outfile="manjaro-rootfs.squashfs" ;;
+        gentoo)   dockerfile="Dockerfile.rootfs-gentoo";   outfile="gentoo-rootfs.squashfs" ;;
         *) echo "unknown distro: ${distro}"; exit 1 ;;
     esac
     log "Building ${distro} rootfs squashfs (Docker)..."
@@ -46,7 +54,7 @@ build_distro_rootfs() {
 
 build_rootfs() {
     # Default: build all three distro rootfs images.
-    for d in kali debian ubuntu; do
+    for d in kali debian ubuntu fedora rocky alma opensuse arch manjaro gentoo; do
         build_distro_rootfs "$d"
     done
 }
@@ -57,7 +65,14 @@ case "${TARGET}" in
     kali)           build_distro_rootfs kali ;;
     debian)         build_distro_rootfs debian ;;
     ubuntu)         build_distro_rootfs ubuntu ;;
+    fedora)         build_distro_rootfs fedora ;;
+    rocky)          build_distro_rootfs rocky ;;
+    alma)           build_distro_rootfs alma ;;
+    opensuse)       build_distro_rootfs opensuse ;;
+    arch)           build_distro_rootfs arch ;;
+    manjaro)        build_distro_rootfs manjaro ;;
+    gentoo)         build_distro_rootfs gentoo ;;
     all)            build_initramfs && build_rootfs ;;
-    *) echo "usage: $0 [initramfs|rootfs|kali|debian|ubuntu|all] [SYSTEM_VERSION]"; exit 1 ;;
+    *) echo "usage: $0 [initramfs|rootfs|kali|debian|ubuntu|fedora|rocky|alma|opensuse|arch|manjaro|gentoo|all] [SYSTEM_VERSION]"; exit 1 ;;
 esac
 echo "Artifacts in: ${OUT}"

@@ -1,74 +1,59 @@
 # poroid-rootfs
 
-Podroid guest system builder — produces the boot initramfs plus guest rootfs
-images (arm64). **Kernel is NOT here** — it lives in
-[poroid-kernel](https://github.com/nike64542-byte/poroid-kernel) and is shared
-by every distro image.
+Guest system images for Poroid (Android app / aarch64 VM). Produces a shared
+Debian initramfs (`initrd.img`) plus one squashfs rootfs per distro. The
+matching kernel lives in [poroid-kernel](https://github.com/nike64542-byte/poroid-kernel);
+QEMU binaries in [poroid-qemu](https://github.com/nike64542-byte/poroid-qemu).
 
-## What are the two artifacts?
+## Supported distros (10)
 
-The VM boots in **two stages**:
+| Distro        | Arch  | Init    | Package mgr | Asset                        |
+|---------------|-------|---------|-------------|------------------------------|
+| Kali          | arm64 | OpenRC  | apt         | `kali-rootfs.squashfs`       |
+| Debian 12     | arm64 | OpenRC  | apt         | `debian-rootfs.squashfs`     |
+| Ubuntu 24.04  | arm64 | systemd | apt         | `ubuntu-rootfs.squashfs`     |
+| Fedora 42     | arm64 | systemd | dnf         | `fedora-rootfs.squashfs`     |
+| Rocky 9       | arm64 | systemd | dnf         | `rocky-rootfs.squashfs`      |
+| AlmaLinux 9   | arm64 | systemd | dnf         | `alma-rootfs.squashfs`       |
+| openSUSE Leap 15.6 | arm64 | systemd | zypper   | `opensuse-rootfs.squashfs`   |
+| Arch Linux ARM | arm64 | systemd | pacman     | `arch-rootfs.squashfs`       |
+| Manjaro ARM   | arm64 | systemd | pacman      | `manjaro-rootfs.squashfs`    |
+| Gentoo        | arm64 | OpenRC  | portage     | `gentoo-rootfs.squashfs`     |
 
-```
-vmlinuz-virt (kernel)
-   └─ initrd.img (Debian initramfs)  ← boots first, tiny, distro-agnostic
-        └─ mounts /dev/vda (user data) + /dev/vdb (squashfs)
-        └─ switch_root → the real guest OS's /sbin/init
-```
+**Not supported:** Linux Mint, EndeavourOS — both ship x86_64 only; Poroid's
+VM is aarch64, so no arm64 rootfs exists to build from.
 
-- **`initrd.img` = Debian initramfs** — a minimal "ignition" stage built from
-  Debian (bookworm-slim). It only contains `init-podroid` (mounts the
-  persistent overlay + the squashfs, then hands off to the real rootfs) and the
-  handful of tools it needs (`mount`, `switch_root`, `e2fsprogs`, `kmod`,
-  `coreutils`). It is **shared by all distro images** and does not need to be
-  rebuilt per distro.
-- **`kali/debian/ubuntu-rootfs.squashfs` = the actual guest OS** — the Linux
-  system you log into. Each distro is a separate artifact.
+Notes:
+- **Arch** uses [Arch Linux ARM](https://archlinuxarm.org) (official Arch repos
+  have no aarch64 packages).
+- **Manjaro** = Arch Linux ARM base + official Manjaro ARM repos
+  (`repo.manjaro.org/repo/arm-stable`), keyring bootstrapped at build time.
+- **Gentoo** installs strictly from official binary packages
+  (`--getbinpkg`); the build fails fast if binpkg coverage is missing —
+  it never compiles from source under emulation.
+- New distros bake **official upstream repos** (no China-mirror swap;
+  Ubuntu keeps its existing USTC swap).
 
-The custom kernel has every needed driver built in (`=y`, no modules), and all
-distro images use the **same OpenRC/sysvinit boot pipeline** (no systemd), so
-the initramfs, kernel, and boot flow are 100% shared. Only the squashfs differs
-per distro.
-
-## Artifacts
-
-| Artifact | What it is |
-|---|---|
-| `initrd.img` | Debian aarch64 initramfs (shared boot stage) |
-| `kali-rootfs.squashfs` | Kali Linux (full: podman + docker/lxc + X11 server, OpenRC) |
-| `debian-rootfs.squashfs` | Debian 12 minimal (ssh + podman only, OpenRC) |
-| `ubuntu-rootfs.squashfs` | Ubuntu 24.04 minimal (ssh + podman only, OpenRC) |
-
-All squashfs use zstd compression (the only compressor compiled into the kernel).
-
-## Build
+## Building
 
 ```bash
-./build.sh initramfs     # Debian initramfs only
-./build.sh kali          # Kali rootfs only
-./build.sh debian        # Debian minimal rootfs only
-./build.sh ubuntu        # Ubuntu minimal rootfs only
-./build.sh rootfs        # all three distro rootfs
-./build.sh all           # initramfs + all three distro rootfs
+./build.sh initramfs            # shared Debian initramfs → out/initrd.img
+./build.sh fedora               # one distro → out/fedora-rootfs.squashfs
+./build.sh rootfs               # all ten rootfs images (slow)
+./build.sh all                  # initramfs + all ten
 ```
 
-Output lands in `out/`. Requires Docker with arm64 emulation
-(`docker/setup-qemu-action` on CI, or a `binfmt_misc` registration locally).
+CI (GitHub Actions) builds per-distro in parallel via a matrix; dispatch
+**构建系统镜像** with `distro=<name>` or `distro=all`. Artifacts also land on
+the `latest` Release (`--clobber` overwrite).
 
-## CI
+## Layout
 
-One run builds **one** image — pick the `distro` when you trigger manually:
-
-- `workflow_dispatch` → `distro` input: `initramfs` / `kali` / `debian` /
-  `ubuntu` / `all` (default `kali`).
-- `push` to `main` → builds `kali` by default (config change = default distro).
-
-The built artifact is uploaded to the `latest` Release.
-
-## Artifact flow
-
-[poroid-apk](https://github.com/nike64542-byte/poroid-apk) downloads from this
-repo's `latest` Release:
-- always: `initrd.img`
-- plus whichever rootfs the app is configured to boot
-  (`kali-rootfs.squashfs` / `debian-rootfs.squashfs` / `ubuntu-rootfs.squashfs`).
+- `Dockerfile.initramfs` — shared initramfs (Debian-based).
+- `build-rootfs/Dockerfile.rootfs[-<distro>]` — one image per distro.
+- `build-rootfs/build-rootfs*.sh` — install scripts, split by package manager
+  (apt / dnf / zypper / pacman / emerge).
+- `build-rootfs/files/` — OpenRC overlay (Kali, Debian, Gentoo).
+- `build-rootfs/files-systemd/` — systemd overlay (Ubuntu, Fedora, Rocky,
+  Alma, openSUSE, Arch, Manjaro).
+- `init-podroid` — initramfs init: switch_root into the chosen rootfs.

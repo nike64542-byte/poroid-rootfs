@@ -49,7 +49,7 @@ ENV SYSTEM_VERSION=${SYSTEM_VERSION}
 
 # 1. Install packages + configure rootfs (runs in the container root /)
 COPY files /work/files
-COPY files-ubuntu-systemd /work/files-ubuntu-systemd
+COPY files-systemd /work/files-systemd
 COPY build-rootfs-ubuntu.sh /work/build-rootfs-ubuntu.sh
 RUN chmod +x /work/build-rootfs-ubuntu.sh && DISTRO=ubuntu /work/build-rootfs-ubuntu.sh
 
