@@ -69,8 +69,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release view latest >/dev/null 2>&1 || \
-            gh release create latest --title "最新系统镜像" \
+          # No checkout in this job — gh must be told the repo explicitly
+          # (otherwise: "failed to run git: fatal: not a git repository").
+          gh release view latest -R "${GITHUB_REPOSITORY}" >/dev/null 2>&1 || \
+            gh release create latest -R "${GITHUB_REPOSITORY}" \
+              --title "最新系统镜像" \
               --notes "System $SYSTEM_VERSION ($DISTRO)" --prerelease
 
   initramfs:
@@ -84,6 +87,12 @@ jobs:
         uses: actions/checkout@v4
       - name: 释放磁盘空间
         run: sudo rm -rf /usr/share/dotnet /opt/ghc 2>/dev/null || true
+      - name: 设置 QEMU (arm64)
+        uses: docker/setup-qemu-action@v3
+        with:
+          platforms: arm64
+      - name: 设置 Docker Buildx
+        uses: docker/setup-buildx-action@v3
       - name: 构建 initramfs
         run: ./build.sh initramfs
       - name: 上传系统镜像产物
