@@ -23,6 +23,7 @@ mkdir -p "$R/dev" "$R/proc" "$R/sys" "$R/tmp" "$R/etc" "$R/var/cache/pacman/pkg"
 for n in urandom null zero tty random console ptmx; do
     [ -e "/dev/$n" ] && cp -a "/dev/$n" "$R/dev/$n" 2>/dev/null || true
 done
+printf 'rootfs / rootfs rw 0 0\n' > "$R/etc/mtab"
 rm -f "$R/etc/resolv.conf"
 cp /etc/resolv.conf "$R/etc/resolv.conf"
 
@@ -107,7 +108,7 @@ chroot "$R" pacman -S --noconfirm --needed \
     bash coreutils findutils gawk grep sed \
     util-linux procps kmod shadow \
     openssl ca-certificates curl wget \
-    xz gzip tar file rsync squashfs \
+    xz gzip tar file rsync \
     e2fsprogs iproute2 iputils bind net-tools \
     iptables nftables dhclient \
     openssh sudo vim-minimal less \
@@ -127,6 +128,8 @@ fi
 rm -rf "$R"/usr/share/man "$R"/usr/share/doc "$R"/usr/share/locale \
        "$R"/usr/share/info "$R"/usr/share/help "$R"/usr/lib/debug \
        2>/dev/null || true
+rm -f "$R/etc/mtab"
+ln -s /proc/self/mounts "$R/etc/mtab"
 
 # ── 5. Disable host-bloat services ──────────────────────────────────────────
 for svc in NetworkManager NetworkManager-wait-online firewalld \
