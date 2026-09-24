@@ -27,6 +27,7 @@ if [ ! -d "$R/etc" ]; then
     rm -f "$R/etc"
     mkdir -p "$R/etc"
 fi
+rm -f "$R/etc/mtab"
 printf 'rootfs / rootfs rw 0 0\n' > "$R/etc/mtab"
 rm -f "$R/etc/resolv.conf"
 cp /etc/resolv.conf "$R/etc/resolv.conf"
