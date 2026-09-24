@@ -26,9 +26,7 @@ zypper --non-interactive install --no-recommends -y \
 
 # ── 2. Podman container runtime ─────────────────────────────────────────────
 zypper --non-interactive install --no-recommends -y \
-    podman crun fuse-overlayfs libcap-tools 2>/dev/null \
- || zypper --non-interactive install --no-recommends -y \
-    podman crun fuse-overlayfs libcap
+    podman crun fuse-overlayfs
 
 # ── 3. Strip man/docs/locale ─────────────────────────────────────────────────
 rm -rf /usr/share/man /usr/share/doc /usr/share/locale /usr/share/info \

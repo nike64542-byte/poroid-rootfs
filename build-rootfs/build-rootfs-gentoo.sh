@@ -1,178 +1,136 @@
-#!/bin/sh
-# ─────────────────────────────────────────────────────────────────────────────
-# Podroid MINIMAL rootfs builder — Gentoo (arm64) + OpenRC.
-#
-# Runs INSIDE a debian:bookworm arm64 Docker stage. Fetches the official
-# stage3-arm64-openrc tarball (pointer file → dated path) into /work/rootfs,
-# then chroot-installs our package set with EMERGE_DEFAULT_OPTS="--getbinpkg".
-#
-# Fail-fast contract (spec §3.2/§8): binhost must be reachable (HTTP 200) and
-# the podman probe must complete as a BINARY install within `timeout 600`.
-# A source build under qemu-user will trip the timeout and abort — we never
-# let compilation run.
-#
-# Uses the OpenRC overlay (files/) exactly like the Kali/Debian images:
-# inittab + runlevels + dropbear, no systemd.
-# ─────────────────────────────────────────────────────────────────────────────
-set -eu
+#!/bin/bash
+set -euo pipefail
 
-R=/work/rootfs
+R=/
+EXPORT_ROOT=/work/rootfs
 DISTRO=gentoo
-echo "build-rootfs-gentoo.sh: building MINIMAL gentoo rootfs (OpenRC, chroot)"
+export FEATURES="-sandbox -usersandbox"
+export EMERGE_DEFAULT_OPTS="--getbinpkg -v --ask=n"
 
-# ── 0. Fetch stage3 via official pointer ────────────────────────────────────
-# Pointer file is PGP-clearsigned; take the stage3 path line, not armor headers.
-PTR=$(curl -fsSL \
-    https://distfiles.gentoo.org/releases/arm64/autobuilds/latest-stage3-arm64-openrc.txt \
-    | grep -E 'stage3-.*\.tar\.xz[[:space:]]' | head -1 | awk '{print $1}')
-if [ -z "$PTR" ]; then
-    echo "FATAL: stage3 pointer file empty or unreachable" >&2
-    exit 1
-fi
-echo "stage3: $PTR"
-mkdir -p "$R"
-# Pointer paths are relative to releases/arm64/autobuilds/, not releases/arm64/.
-curl -fsSL "https://distfiles.gentoo.org/releases/arm64/autobuilds/${PTR}" \
-    | tar -xJp -C "$R"
+echo "build-rootfs-gentoo.sh: building MINIMAL gentoo rootfs (OpenRC, native stage3)"
 
-# ── 1. Preflight: device nodes + DNS + rchroot helper ───────────────────────
-mkdir -p "$R/dev" "$R/proc" "$R/sys" "$R/tmp" "$R/etc" "$R/etc/portage"
-for n in urandom null zero tty random console ptmx; do
-    [ -e "/dev/$n" ] && cp -a "/dev/$n" "$R/dev/$n" 2>/dev/null || true
-done
-ln -sfn /proc/self/fd "$R/dev/fd"
-ln -sfn /proc/self/fd/0 "$R/dev/stdin"
-ln -sfn /proc/self/fd/1 "$R/dev/stdout"
-ln -sfn /proc/self/fd/2 "$R/dev/stderr"
-
-rm -f "$R/etc/resolv.conf"
-cp /etc/resolv.conf "$R/etc/resolv.conf"
-
-# Docker RUN lacks CAP_SYS_ADMIN. unshare -Urm opens a user+mount ns where
-# mount(2) works; proc/sys/dev are set up per call and die with the ns.
-rchroot() {
-    _r="$1"; shift
-    if unshare -Urm true 2>/dev/null; then
-        unshare -Urm sh -c '
-            set -e
-            mount --make-rprivate / 2>/dev/null || true
-            mount -t proc proc "$1/proc"
-            mount -t sysfs sysfs "$1/sys" 2>/dev/null || true
-            mount --bind /dev "$1/dev" 2>/dev/null || true
-            [ -e "$1/dev/fd" ] || ln -sfn /proc/self/fd "$1/dev/fd"
-            [ -e "$1/dev/stdin" ] || ln -sfn /proc/self/fd/0 "$1/dev/stdin"
-            [ -e "$1/dev/stdout" ] || ln -sfn /proc/self/fd/1 "$1/dev/stdout"
-            [ -e "$1/dev/stderr" ] || ln -sfn /proc/self/fd/2 "$1/dev/stderr"
-            R="$1"; shift
-            exec chroot "$R" "$@"
-        ' sh "$_r" "$@"
-    else
-        # Fallback: privileged builder (direct mount) or hope /proc already ok
-        mount -t proc proc "$_r/proc" 2>/dev/null || true
-        mount --bind /dev "$_r/dev" 2>/dev/null || true
-        chroot "$_r" "$@"
-    fi
-}
-
-if ! rchroot "$R" emerge --version; then
-    echo "FATAL: rchroot emerge does not run (unshare/qemu/stage3 issue)" >&2
-    exit 1
-fi
-if [ ! -e "$R/sbin/init" ] && [ ! -e "$R/lib/sysvinit/init" ] \
-   && [ ! -e "$R/usr/lib/sysvinit/init" ]; then
-    echo "FATAL: stage3 has no sysvinit init binary (inittab boot path broken)" >&2
-    echo "Contingency: chroot emerge sys-apps/sysvinit && ln -sf <init> /sbin/init" >&2
+if ! emerge --version; then
+    echo "FATAL: emerge does not run in the stage3 image" >&2
     exit 1
 fi
 
-# ── 2. Binhost fail-fast (spec §3.2) ────────────────────────────────────────
 BINHOST_URL="${PORTAGE_BINHOST_URL:-https://distfiles.gentoo.org/releases/arm64/binpackages/23.0/arm64/}"
+printf 'PORTAGE_BINHOST="%s"\n' "$BINHOST_URL" >> /etc/portage/make.conf
+if ! command -v curl >/dev/null 2>&1; then
+    emerge --getbinpkg --oneshot net-misc/curl
+fi
 if ! curl -fsSI "$BINHOST_URL" >/dev/null; then
     echo "FATAL: binhost not reachable (200 expected): $BINHOST_URL" >&2
-    echo "Fix PORTAGE_BINHOST_URL (candidates follow; first HTTP 200 wins):" >&2
-    echo "  https://distfiles.gentoo.org/releases/arm64/binpackages/23.0/arm64/" >&2
-    echo "  https://distfiles.gentoo.org/releases/arm64/binpackages/" >&2
-    exit 1
-fi
-printf 'PORTAGE_BINHOST="%s"\n' "$BINHOST_URL" >> "$R/etc/portage/make.conf"
-echo "binhost: $BINHOST_URL"
-
-# ── 3. Probe: podman must install as BINPKG within 10 min ───────────────────
-#      (source fallback under qemu trips `timeout` → red FATAL, per spec §8)
-if ! timeout 600 rchroot "$R" env \
-        FEATURES="-sandbox -usersandbox" \
-        EMERGE_DEFAULT_OPTS="--getbinpkg -v --ask=n" \
-        emerge --oneshot app-emulation/podman; then
-    echo "FATAL: podman binpkg probe failed/timed out (binpkg coverage gap)" >&2
-    echo "Spec §8 fallback: build a custom stage3 tarball with podman preinstalled" >&2
-    echo "and publish it on the Release, then pin its URL here." >&2
     exit 1
 fi
 
-# ── 4. Full package set (all via binpkg; sandbox off — chroot, no /proc) ────
-rchroot "$R" env \
-    FEATURES="-sandbox -usersandbox" \
-    EMERGE_DEFAULT_OPTS="--getbinpkg -v --ask=n" \
-    emerge --oneshot \
-    app-emulation/crun sys-fs/fuse-overlayfs \
-    net-misc/dropbear app-admin/sudo net-misc/dhclient net-misc/iptables \
-    sys-apps/usbutils sys-apps/pciutils app-misc/ca-certificates
+if ! timeout 600 emerge --oneshot =app-containers/podman-5.8.2; then
+    echo "FATAL: podman binpkg probe failed/timed out" >&2
+    exit 1
+fi
 
-if ! rchroot "$R" command -v dhclient >/dev/null 2>&1; then
+emerge --oneshot \
+    app-containers/crun sys-fs/fuse-overlayfs \
+    net-misc/dropbear app-admin/sudo net-misc/dhcp net-firewall/iptables \
+    sys-apps/usbutils sys-apps/pciutils app-misc/ca-certificates app-arch/tar
+
+if ! command -v dhclient >/dev/null 2>&1; then
     echo "FATAL: dhclient missing after emerge" >&2
     exit 1
 fi
-rchroot "$R" passwd -l root 2>/dev/null || true
+passwd -l root 2>/dev/null || true
 
-# ── 5. Strip man/docs/locale + caches ───────────────────────────────────────
-rm -rf "$R"/usr/share/man "$R"/usr/share/doc "$R"/usr/share/locale \
-       "$R"/usr/share/info "$R"/usr/share/help "$R"/usr/lib/debug \
-       "$R"/var/cache/distfiles/* "$R"/var/cache/binpkgs/* \
-       "$R"/var/cache/portage/distfiles/* \
-       "$R"/tmp/* "$R"/var/tmp/* 2>/dev/null || true
+rm -rf /usr/share/man /usr/share/doc /usr/share/locale \
+       /usr/share/info /usr/share/help /usr/lib/debug \
+       /var/cache/distfiles/* /var/cache/binpkgs/* \
+       /var/cache/portage/distfiles/* \
+       /tmp/* /var/tmp/* 2>/dev/null || true
 
-# ── 6. Copy Podroid system files (OpenRC variant — mirrors build-rootfs-minimal.sh §10-11)
-mkdir -p "$R/usr/local/bin" "$R/usr/local/libexec/podroid"
+mkdir -p /usr/local/bin /usr/local/libexec/podroid
 for f in podroid-bootstrap podroid-network podroid-terminals podroid-ready \
          podroid-vsock podroid-hostd podroid-downloads podroid-migrate podroid-resize; do
-    cp "/work/files/etc/init.d/$f" "$R/etc/init.d/$f"
-    chmod +x "$R/etc/init.d/$f"
+    cp "/work/files/etc/init.d/$f" "/etc/init.d/$f"
+    chmod +x "/etc/init.d/$f"
 done
 for f in podroid-resize podroid-terminals podroid-login podroid-getty \
          podroid-getty-extra podroid-backup podroid-update-stats podroid-mirror; do
-    cp "/work/files/usr/local/bin/$f" "$R/usr/local/bin/$f"
-    chmod +x "$R/usr/local/bin/$f"
+    cp "/work/files/usr/local/bin/$f" "/usr/local/bin/$f"
+    chmod +x "/usr/local/bin/$f"
 done
-ln -sf podroid-hostd "$R/usr/local/bin/podroid-notify"
-ln -sf podroid-hostd "$R/usr/local/bin/podroid-forward"
-ln -sf podroid-hostd "$R/usr/local/bin/podroid-open"
-ln -sf podroid-hostd "$R/usr/local/bin/podroid-power"
-ln -sf podroid-hostd "$R/usr/local/bin/podroid-headless"
-ln -sf podroid-hostd "$R/usr/local/bin/podroid-server"
-chmod +x "$R/usr/local/bin/podroid-"* 2>/dev/null || true
+ln -sf podroid-hostd /usr/local/bin/podroid-notify
+ln -sf podroid-hostd /usr/local/bin/podroid-forward
+ln -sf podroid-hostd /usr/local/bin/podroid-open
+ln -sf podroid-hostd /usr/local/bin/podroid-power
+ln -sf podroid-hostd /usr/local/bin/podroid-headless
+ln -sf podroid-hostd /usr/local/bin/podroid-server
+chmod +x /usr/local/bin/podroid-* 2>/dev/null || true
 
-mkdir -p "$R/etc/conf.d" "$R/etc/podroid/migrations" "$R/etc/containers"
-cp /work/files/etc/conf.d/podroid "$R/etc/conf.d/podroid"
-cp /work/files/etc/podroid/forwards.conf "$R/etc/podroid/forwards.conf"
-chmod 0644 "$R/etc/podroid/forwards.conf"
-cp /work/files/etc/podroid/migrations/README "$R/etc/podroid/migrations/README"
-printf '%s\n' "${SYSTEM_VERSION:-0}" > "$R/etc/podroid/system-version"
-chmod 0644 "$R/etc/podroid/system-version"
+mkdir -p /etc/conf.d /etc/podroid/migrations /etc/containers
+cp /work/files/etc/conf.d/podroid /etc/conf.d/podroid
+cp /work/files/etc/podroid/forwards.conf /etc/podroid/forwards.conf
+chmod 0644 /etc/podroid/forwards.conf
+cp /work/files/etc/podroid/migrations/README /etc/podroid/migrations/README
+printf '%s\n' "${SYSTEM_VERSION:-0}" > /etc/podroid/system-version
+chmod 0644 /etc/podroid/system-version
 
-cp /work/files/etc/inittab "$R/etc/inittab"
-cp /work/files/etc/rc.conf "$R/etc/rc.conf"
-mkdir -p "$R/etc/profile.d"
-cp /work/files/etc/profile.d/podroid-color.sh "$R/etc/profile.d/"
-chmod 0644 "$R/etc/profile.d/podroid-color.sh"
-cp /work/files/etc/containers/storage.conf "$R/etc/containers/storage.conf"
-chmod 0644 "$R/etc/containers/storage.conf"
+cp /work/files/etc/inittab /etc/inittab
+cp /work/files/etc/rc.conf /etc/rc.conf
+mkdir -p /etc/profile.d
+cp /work/files/etc/profile.d/podroid-color.sh /etc/profile.d/
+chmod +x /etc/profile.d/podroid-color.sh
+cp /work/files/etc/containers/storage.conf /etc/containers/storage.conf
+chmod 0644 /etc/containers/storage.conf
 
-echo "podroid" > "$R/etc/hostname"
-cat > "$R/etc/hosts" <<'EOF'
+mkdir -p /etc/runlevels/default /etc/runlevels/boot \
+         /etc/runlevels/shutdown /etc/runlevels/sysinit
+for svc in podroid-migrate podroid-bootstrap podroid-network podroid-terminals \
+           podroid-vsock podroid-downloads podroid-hostd podroid-ready \
+           dropbear; do
+    if [ -e "/etc/init.d/$svc" ]; then
+        ln -sf "/etc/init.d/$svc" "/etc/runlevels/default/$svc"
+    else
+        echo "WARN: init script $svc missing, skipping runlevel symlink"
+    fi
+done
+for svc in hwclock networking sysctl bootmisc syslog; do
+    rm -f "/etc/runlevels/boot/$svc" "/etc/runlevels/default/$svc" 2>/dev/null || true
+done
+
+mkdir -p /var/lib/containers/storage /run/containers/storage \
+         /run/libpod /run/crun
+
+for must in etc/inittab etc/init.d/podroid-bootstrap etc/init.d/dropbear \
+            usr/local/bin/podroid-getty; do
+    [ -e "/$must" ] || { echo "FATAL: missing $must" >&2; exit 1; }
+done
+if [ ! -e /sbin/init ]; then
+    for cand in usr/lib/sysvinit/init lib/sysvinit/init usr/sbin/init; do
+        if [ -e "/$cand" ]; then
+            ln -sf "/$cand" /sbin/init
+            break
+        fi
+    done
+    [ -e /sbin/init ] || { echo "FATAL: cannot create /sbin/init symlink" >&2; exit 1; }
+fi
+grep -q podroid-getty /etc/inittab || { echo "FATAL: inittab not podroid's" >&2; exit 1; }
+
+rm -rf "$EXPORT_ROOT"
+mkdir -p "$EXPORT_ROOT"
+tar --xattrs --xattrs-include='*.*' --numeric-owner \
+    --exclude='./proc' --exclude='./sys' --exclude='./dev' \
+    --exclude='./run' --exclude='./tmp' --exclude='./var/tmp' \
+    --exclude='./work' --exclude='./var/cache/distfiles' \
+    --exclude='./var/cache/binpkgs' --exclude='./var/log' \
+    -C / -cpf - . | \
+tar --xattrs --xattrs-include='*.*' --numeric-owner \
+    -C "$EXPORT_ROOT" -xpf -
+rm -f "$EXPORT_ROOT/etc/resolv.conf"
+printf 'podroid\n' > "$EXPORT_ROOT/etc/hostname"
+cat > "$EXPORT_ROOT/etc/hosts" <<'EOF'
 127.0.0.1 localhost podroid
 ::1 localhost ip6-localhost
 EOF
-cat > "$R/etc/issue" <<'EOF'
+cat > "$EXPORT_ROOT/etc/issue" <<'EOF'
 Welcome to Podroid-gentoo (gentoo)
 Kernel \r on \m (\l)
 
@@ -180,40 +138,5 @@ Kernel \r on \m (\l)
   Create a regular user:   useradd -G wheel <name>
 
 EOF
-
-# ── 7. OpenRC runlevels (direct symlinks — host is arm64 container, no rc-update needed)
-mkdir -p "$R/etc/runlevels/default" "$R/etc/runlevels/boot" \
-         "$R/etc/runlevels/shutdown" "$R/etc/runlevels/sysinit"
-for svc in podroid-migrate podroid-bootstrap podroid-network podroid-terminals \
-           podroid-vsock podroid-downloads podroid-hostd podroid-ready \
-           dropbear; do
-    if [ -e "$R/etc/init.d/$svc" ]; then
-        ln -sf "/etc/init.d/$svc" "$R/etc/runlevels/default/$svc"
-    else
-        echo "WARN: init script $svc missing, skipping runlevel symlink"
-    fi
-done
-for svc in hwclock networking sysctl bootmisc syslog; do
-    rm -f "$R/etc/runlevels/boot/$svc" "$R/etc/runlevels/default/$svc" 2>/dev/null || true
-done
-
-mkdir -p "$R/var/lib/containers/storage" "$R/run/containers/storage" \
-         "$R/run/libpod" "$R/run/crun"
-
-# ── 8. Sanity: OpenRC boot path must be complete ────────────────────────────
-for must in etc/inittab etc/init.d/podroid-bootstrap etc/init.d/dropbear \
-            usr/local/bin/podroid-getty; do
-    [ -e "$R/$must" ] || { echo "FATAL: missing $must" >&2; exit 1; }
-done
-if [ ! -e "$R/sbin/init" ]; then
-    for cand in usr/lib/sysvinit/init lib/sysvinit/init usr/sbin/init; do
-        if [ -e "$R/$cand" ]; then
-            ln -sf "/$cand" "$R/sbin/init"
-            break
-        fi
-    done
-    [ -e "$R/sbin/init" ] || { echo "FATAL: cannot create /sbin/init symlink" >&2; exit 1; }
-fi
-grep -q podroid-getty "$R/etc/inittab" || { echo "FATAL: inittab not podroid's" >&2; exit 1; }
 
 echo "build-rootfs-gentoo.sh: gentoo minimal rootfs ready"

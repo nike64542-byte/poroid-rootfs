@@ -34,12 +34,12 @@ fi
 # ── 1. Repos ────────────────────────────────────────────────────────────────
 if [ "$DISTRO" = "manjaro" ]; then
     # Replace ALARM's pacman.conf with Manjaro ARM official repos.
-    # Per-repo TrustAll applies ONLY while bootstrapping manjaro-arm-keyring;
+    # Per-repo TrustAll applies ONLY while bootstrapping manjaro-keyring;
     # Step 3 strips it back to Required and re-syncs to prove signatures work.
     cat > "$R/etc/pacman.conf" <<'EOF'
 [options]
 HoldPkg = pacman glibc manjaro-system
-SyncFirst = manjaro-system archlinux-keyring manjaro-arm-keyring archlinuxarm-keyring
+DisableSandbox
 Architecture = aarch64
 CheckSpace
 SigLevel = Required DatabaseOptional
@@ -59,18 +59,20 @@ SigLevel = Optional TrustAll
 EOF
 else
     # Arch Linux ARM: stock /etc/pacman.conf from the tarball is correct.
-    :
+    if ! grep -q '^DisableSandbox$' "$R/etc/pacman.conf"; then
+        sed -i '/^\[options\]/a DisableSandbox' "$R/etc/pacman.conf"
+    fi
 fi
 
 # ── 2. Sync + (manjaro) keyring bootstrap ───────────────────────────────────
 chroot "$R" pacman -Sy --noconfirm
 
 if [ "$DISTRO" = "manjaro" ]; then
-    if ! chroot "$R" pacman -S --noconfirm --needed manjaro-arm-keyring archlinux-keyring archlinuxarm-keyring; then
+    if ! chroot "$R" pacman -S --noconfirm --needed manjaro-keyring archlinux-keyring archlinuxarm-keyring; then
         echo "FATAL: manjaro/arch keyring packages failed to install" >&2
         exit 1
     fi
-    chroot "$R" pacman-key --populate manjaro-arm 2>/dev/null || true
+    chroot "$R" pacman-key --populate manjaro 2>/dev/null || true
     chroot "$R" pacman-key --populate archlinux 2>/dev/null || true
     chroot "$R" pacman-key --populate archlinuxarm 2>/dev/null || true
 
