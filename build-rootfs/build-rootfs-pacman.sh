@@ -23,6 +23,10 @@ mkdir -p "$R/dev" "$R/proc" "$R/sys" "$R/tmp" "$R/etc" "$R/var/cache/pacman/pkg"
 for n in urandom null zero tty random console ptmx; do
     [ -e "/dev/$n" ] && cp -a "/dev/$n" "$R/dev/$n" 2>/dev/null || true
 done
+if [ ! -d "$R/etc" ]; then
+    rm -f "$R/etc"
+    mkdir -p "$R/etc"
+fi
 printf 'rootfs / rootfs rw 0 0\n' > "$R/etc/mtab"
 rm -f "$R/etc/resolv.conf"
 cp /etc/resolv.conf "$R/etc/resolv.conf"
