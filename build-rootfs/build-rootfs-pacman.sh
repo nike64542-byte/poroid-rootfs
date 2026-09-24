@@ -52,15 +52,15 @@ SigLevel = Required DatabaseOptional
 LocalFileSigLevel = Optional TrustAll
 
 [core]
-Server = http://mirror.archlinuxarm.org/aarch64/$repo
+Server = https://mirrors.dotsrc.org/archlinuxarm/aarch64/$repo
 SigLevel = Optional TrustAll
 
 [extra]
-Server = http://mirror.archlinuxarm.org/aarch64/$repo
+Server = https://mirrors.dotsrc.org/archlinuxarm/aarch64/$repo
 SigLevel = Optional TrustAll
 
 [community]
-Server = http://mirror.archlinuxarm.org/aarch64/$repo
+Server = https://mirrors.dotsrc.org/archlinuxarm/aarch64/$repo
 SigLevel = Optional TrustAll
 EOF
 else
