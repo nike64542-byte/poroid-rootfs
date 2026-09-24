@@ -111,6 +111,7 @@ mount --move /mnt/lower /mnt/overlay/mnt/lower \
     || { echo "FATAL: mount --move /mnt/lower failed" > /dev/console; exec sh; }
 
 # Move our early mounts into the new root so OpenRC inherits them
+mkdir -p /mnt/overlay/proc /mnt/overlay/sys /mnt/overlay/dev
 mount --move /proc /mnt/overlay/proc \
     || { echo "FATAL: mount --move /proc failed" > /dev/console; exec sh; }
 mount --move /sys  /mnt/overlay/sys \
