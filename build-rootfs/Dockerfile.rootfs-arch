@@ -36,9 +36,15 @@ RUN chmod +x /usr/local/bin/podroid-vsock-agent /usr/local/bin/podroid-hostd \
 ARG SYSTEM_VERSION=0
 ENV SYSTEM_VERSION=${SYSTEM_VERSION}
 
-# ALARM aarch64 rootfs tarball (verified reachable; ADD auto-extracts tar.gz
-# so its top-level etc/ usr/ ... land directly in /work/rootfs/).
-ADD http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz /work/rootfs/
+# ALARM aarch64 rootfs tarball. Remote ADD is unreliable (302 to mirrors,
+# BuildKit may store the archive unextracted) — download + extract explicitly.
+RUN mkdir -p /work/rootfs \
+    && curl -fL --retry 3 -o /tmp/alarm.tgz \
+         http://os.archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz \
+    && tar -xzf /tmp/alarm.tgz -C /work/rootfs \
+    && rm -f /tmp/alarm.tgz \
+    && test -x /work/rootfs/usr/bin/pacman \
+    || { echo "FATAL: ALARM extract failed or pacman missing" >&2; exit 1; }
 
 COPY files /work/files
 COPY files-systemd /work/files-systemd

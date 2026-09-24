@@ -21,16 +21,19 @@ DISTRO=gentoo
 echo "build-rootfs-gentoo.sh: building MINIMAL gentoo rootfs (OpenRC, chroot)"
 
 # ── 0. Fetch stage3 via official pointer ────────────────────────────────────
+# Pointer file is PGP-clearsigned; take the stage3 path line, not armor headers.
 PTR=$(curl -fsSL \
     https://distfiles.gentoo.org/releases/arm64/autobuilds/latest-stage3-arm64-openrc.txt \
-    | grep -v '^#' | grep -v '^$' | head -1 | awk '{print $1}')
+    | grep -E 'stage3-.*\.tar\.xz[[:space:]]' | head -1 | awk '{print $1}')
 if [ -z "$PTR" ]; then
     echo "FATAL: stage3 pointer file empty or unreachable" >&2
     exit 1
 fi
 echo "stage3: $PTR"
 mkdir -p "$R"
-curl -fsSL "https://distfiles.gentoo.org/releases/arm64/${PTR}" | tar -xJp -C "$R"
+# Pointer paths are relative to releases/arm64/autobuilds/, not releases/arm64/.
+curl -fsSL "https://distfiles.gentoo.org/releases/arm64/autobuilds/${PTR}" \
+    | tar -xJp -C "$R"
 
 # ── 1. Preflight: device nodes + DNS + emerge/sinit must exist ──────────────
 mkdir -p "$R/dev" "$R/proc" "$R/sys" "$R/tmp" "$R/etc" "$R/etc/portage"
@@ -51,12 +54,12 @@ if [ ! -e "$R/sbin/init" ] && [ ! -e "$R/lib/sysvinit/init" ] \
 fi
 
 # ── 2. Binhost fail-fast (spec §3.2) ────────────────────────────────────────
-BINHOST_URL="${PORTAGE_BINHOST_URL:-https://distfiles.gentoo.org/binpackages/arm64-gentoo-linux-gnu/}"
+BINHOST_URL="${PORTAGE_BINHOST_URL:-https://distfiles.gentoo.org/releases/arm64/binpackages/23.0/arm64/}"
 if ! curl -fsSI "$BINHOST_URL" >/dev/null; then
     echo "FATAL: binhost not reachable (200 expected): $BINHOST_URL" >&2
     echo "Fix PORTAGE_BINHOST_URL (candidates follow; first HTTP 200 wins):" >&2
-    echo "  https://distfiles.gentoo.org/binpackages/aarch64-gentoo-linux-gnu/" >&2
-    echo "  https://distfiles.gentoo.org/binpackages/arm64/linux-gnu/" >&2
+    echo "  https://distfiles.gentoo.org/releases/arm64/binpackages/23.0/arm64/" >&2
+    echo "  https://distfiles.gentoo.org/releases/arm64/binpackages/" >&2
     exit 1
 fi
 printf 'PORTAGE_BINHOST="%s"\n' "$BINHOST_URL" >> "$R/etc/portage/make.conf"

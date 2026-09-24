@@ -13,7 +13,7 @@ echo "build-rootfs-zypper.sh: building MINIMAL ${DISTRO} rootfs (systemd)"
 
 # ── 1. Base + tools + squashfs tooling (no recommends) ──────────────────────
 zypper --non-interactive --gpg-auto-import-keys refresh
-zypper --non-interactive --no-recommends install -y \
+zypper --non-interactive install --no-recommends -y \
     bash coreutils findutils gawk grep sed \
     util-linux procps kmod shadow passwd \
     openssl ca-certificates curl wget \
@@ -25,9 +25,9 @@ zypper --non-interactive --no-recommends install -y \
     dbus-1 usbutils pciutils
 
 # ── 2. Podman container runtime ─────────────────────────────────────────────
-zypper --non-interactive --no-recommends install -y \
+zypper --non-interactive install --no-recommends -y \
     podman crun fuse-overlayfs libcap-tools 2>/dev/null \
- || zypper --non-interactive --no-recommends install -y \
+ || zypper --non-interactive install --no-recommends -y \
     podman crun fuse-overlayfs libcap
 
 # ── 3. Strip man/docs/locale ─────────────────────────────────────────────────

@@ -24,7 +24,7 @@ dnf -y install --setopt=install_weak_deps=False --nodocs \
     openssl ca-certificates curl wget \
     xz gzip tar file rsync squashfs-tools \
     e2fsprogs iproute iputils bind-utils net-tools \
-    iptables nftables bridge-utils dhcp-client \
+    iptables nftables dhcp-client \
     openssh-server openssh-clients \
     sudo vim-minimal less \
     dbus usbutils pciutils
