@@ -20,4 +20,4 @@ done
 # Clear the screen + scrollback so the new login banner sits on a clean
 # buffer (mirrors what podroid-getty does for the primary terminal).
 printf '\033[3J\033[2J\033[H' > "/dev/$TTY" 2>/dev/null
-exec /sbin/getty -L -a root -l /usr/local/bin/podroid-login 115200 "$TTY" xterm-256color
+exec /sbin/agetty -L -a root -l /usr/local/bin/podroid-login 115200 "$TTY" xterm-256color

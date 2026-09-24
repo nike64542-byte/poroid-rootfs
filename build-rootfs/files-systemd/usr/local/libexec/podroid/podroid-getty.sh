@@ -13,4 +13,4 @@ done
 [ -c "/dev/$TTY" ] || exec sleep 2147483647
 
 printf '\033[3J\033[2J\033[H' > "/dev/$TTY" 2>/dev/null
-exec /sbin/getty -L -a root -l /usr/local/bin/podroid-login 115200 "$TTY" xterm-256color
+exec /sbin/agetty -L -a root -l /usr/local/bin/podroid-login 115200 "$TTY" xterm-256color

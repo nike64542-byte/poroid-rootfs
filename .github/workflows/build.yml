@@ -124,6 +124,8 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v4
+      - name: 验证 getty wrapper
+        run: sh build-rootfs/test-getty-wrapper.sh
       - name: 释放磁盘空间
         run: |
           sudo rm -rf /usr/share/dotnet /opt/ghc 2>/dev/null || true
