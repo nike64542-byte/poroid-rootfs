@@ -99,20 +99,9 @@ cp /work/files/etc/conf.d/podroid /etc/conf.d/podroid
 cp /work/files/etc/containers/storage.conf /etc/containers/storage.conf
 chmod 0644 /etc/containers/storage.conf
 
-# ── 9. Hostname / hosts / banner ────────────────────────────────────────────
-echo "podroid" > /etc/hostname
-cat > /etc/hosts <<'EOF'
-127.0.0.1 localhost podroid
-::1 localhost ip6-localhost
-EOF
-cat > /etc/issue <<EOF
-Welcome to Podroid-${DISTRO} (${DISTRO})
-Kernel \\r on \\m (\\l)
-
-  Login: automatic as root (no password)
-  Create a regular user:   useradd -G wheel <name>
-
-EOF
+# ── 9. Hostname / hosts / issue deferred to after rsync ────────────────────
+# Docker mounts /etc/hostname, /etc/hosts, and often /etc/issue read-only
+# during buildx+QEMU builds — write them into the exported rootfs below.
 
 # ── 10. Enable Podroid services ─────────────────────────────────────────────
 for u in podroid-migrate podroid-bootstrap podroid-network podroid-hostd \
@@ -137,6 +126,22 @@ rsync -a --delete \
     --exclude='/etc/resolv.conf' \
     --exclude='/var/cache/zypp/*' --exclude='/var/log/*' \
     / /work/rootfs/
+
+# Docker mounts /etc/hostname and /etc/hosts read-only during build — write
+# them into the exported rootfs after rsync instead.
+printf 'podroid\n' > /work/rootfs/etc/hostname
+cat > /work/rootfs/etc/hosts <<'EOF'
+127.0.0.1 localhost podroid
+::1 localhost ip6-localhost
+EOF
+cat > /work/rootfs/etc/issue <<EOF
+Welcome to Podroid-${DISTRO} (${DISTRO})
+Kernel \\r on \\m (\\l)
+
+  Login: automatic as root (no password)
+  Create a regular user:   useradd -G wheel <name>
+
+EOF
 
 if [ ! -e /work/rootfs/sbin/init ]; then
     echo "FATAL: /sbin/init missing from rootfs after rsync!" >&2
