@@ -8,7 +8,7 @@
 # /proc is intentionally absent; binary installs tolerate that).
 #
 # DISTRO=arch   → stock Arch Linux ARM repos (pacman.conf from the tarball)
-# DISTRO=manjaro→ Manjaro ARM official repos (repo.manjaro.org arm-stable),
+# DISTRO=manjaro→ ALARM package repositories with Manjaro keyring,
 #                 keyring bootstrapped under a short-lived TrustAll window
 #                 that is REMOVED before any further sync (verified below).
 # ─────────────────────────────────────────────────────────────────────────────
@@ -52,15 +52,15 @@ SigLevel = Required DatabaseOptional
 LocalFileSigLevel = Optional TrustAll
 
 [core]
-Server = https://ftp.gwdg.de/pub/linux/manjaro/arm-stable/$repo/$arch
+Server = http://mirror.archlinuxarm.org/aarch64/$repo
 SigLevel = Optional TrustAll
 
 [extra]
-Server = https://ftp.gwdg.de/pub/linux/manjaro/arm-stable/$repo/$arch
+Server = http://mirror.archlinuxarm.org/aarch64/$repo
 SigLevel = Optional TrustAll
 
 [community]
-Server = https://ftp.gwdg.de/pub/linux/manjaro/arm-stable/$repo/$arch
+Server = http://mirror.archlinuxarm.org/aarch64/$repo
 SigLevel = Optional TrustAll
 EOF
 else

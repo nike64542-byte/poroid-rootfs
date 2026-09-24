@@ -26,8 +26,9 @@ VM is aarch64, so no arm64 rootfs exists to build from.
 Notes:
 - **Arch** uses [Arch Linux ARM](https://archlinuxarm.org) (official Arch repos
   have no aarch64 packages).
-- **Manjaro** = Arch Linux ARM base + official Manjaro ARM repos
-  (`repo.manjaro.org/repo/arm-stable`), keyring bootstrapped at build time.
+- **Manjaro** = Arch Linux ARM base + Manjaro keyring; package transactions
+  use ALARM's synchronized aarch64 repositories because the Manjaro ARM
+  `arm-stable` database currently references missing package files.
 - **Gentoo** installs strictly from official binary packages
   (`--getbinpkg`); the build fails fast if binpkg coverage is missing —
   it never compiles from source under emulation.
