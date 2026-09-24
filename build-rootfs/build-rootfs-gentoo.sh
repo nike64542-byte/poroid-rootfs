@@ -14,6 +14,14 @@ if ! emerge --version; then
     exit 1
 fi
 
+PROFILE_DIR=$(find /var/db/repos/gentoo/profiles/default/linux/arm64 -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
+if [ -z "$PROFILE_DIR" ]; then
+    echo "FATAL: no arm64 Gentoo profile found" >&2
+    exit 1
+fi
+rm -rf /etc/portage/make.profile
+ln -s "$PROFILE_DIR" /etc/portage/make.profile
+
 BINHOST_URL="${PORTAGE_BINHOST_URL:-https://distfiles.gentoo.org/releases/arm64/binpackages/23.0/arm64/}"
 printf 'PORTAGE_BINHOST="%s"\n' "$BINHOST_URL" >> /etc/portage/make.conf
 if ! command -v curl >/dev/null 2>&1; then

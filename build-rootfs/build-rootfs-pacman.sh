@@ -43,7 +43,7 @@ DisableSandbox
 Architecture = aarch64
 CheckSpace
 SigLevel = Required DatabaseOptional
-LocalFileSigLevel = Optional
+LocalFileSigLevel = Optional TrustAll
 
 [core]
 Server = https://repo.manjaro.org/repo/arm-stable/$repo/$arch
@@ -68,16 +68,28 @@ fi
 chroot "$R" pacman -Sy --noconfirm
 
 if [ "$DISTRO" = "manjaro" ]; then
-    if ! chroot "$R" pacman -S --noconfirm --needed manjaro-keyring archlinux-keyring archlinuxarm-keyring; then
-        echo "FATAL: manjaro/arch keyring packages failed to install" >&2
+    if ! chroot "$R" pacman -S --noconfirm --needed archlinux-keyring archlinuxarm-keyring; then
+        echo "FATAL: arch keyring packages failed to install" >&2
         exit 1
     fi
+    MANJARO_KEYRING_URL="${MANJARO_KEYRING_URL:-https://repo.manjaro.org/repo/stable/core/x86_64/manjaro-keyring-20251003-1-any.pkg.tar.zst}"
+    if ! curl -fsSL "$MANJARO_KEYRING_URL" -o "$R/tmp/manjaro-keyring.pkg.tar.zst"; then
+        echo "FATAL: manjaro keyring download failed" >&2
+        exit 1
+    fi
+    if ! chroot "$R" pacman -U --noconfirm /tmp/manjaro-keyring.pkg.tar.zst; then
+        echo "FATAL: manjaro keyring install failed" >&2
+        exit 1
+    fi
+    rm -f "$R/tmp/manjaro-keyring.pkg.tar.zst"
     chroot "$R" pacman-key --populate manjaro 2>/dev/null || true
     chroot "$R" pacman-key --populate archlinux 2>/dev/null || true
     chroot "$R" pacman-key --populate archlinuxarm 2>/dev/null || true
 
     # Strip the TrustAll window — it must NOT ship in the image.
     sed -i 's/^SigLevel = Optional TrustAll$/SigLevel = Required DatabaseOptional/' \
+        "$R/etc/pacman.conf"
+    sed -i 's/^LocalFileSigLevel = Optional TrustAll$/LocalFileSigLevel = Optional/' \
         "$R/etc/pacman.conf"
     if grep -q "TrustAll" "$R/etc/pacman.conf"; then
         echo "FATAL: TrustAll still present in pacman.conf" >&2
@@ -96,11 +108,11 @@ chroot "$R" pacman -S --noconfirm --needed \
     util-linux procps kmod shadow \
     openssl ca-certificates curl wget \
     xz gzip tar file rsync squashfs \
-    e2fsprogs iproute2 iputils bind-utils net-tools \
-    iptables nftables bridge-utils dhclient \
+    e2fsprogs iproute2 iputils bind net-tools \
+    iptables nftables dhclient \
     openssh sudo vim-minimal less \
     dbus usbutils pciutils \
-    podman crun fuse-overlayfs
+    podman crun fuse-overlayfs squashfs-tools
 
 # If the distro repo has no `dhclient` package, this step fails visibly above.
 # Contingency (apply only if CI reports "target not found: dhclient"):

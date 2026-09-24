@@ -19,8 +19,11 @@ COPY overlay-normalize /work/overlay-normalize
 RUN make -C /work/overlay-normalize CC=${CC} clean all
 
 # ── Stage 2: install packages natively in the arm64 stage3 image ───────────
+FROM --platform=linux/amd64 gentoo/portage:20260921 AS portage
+
 FROM --platform=linux/arm64 gentoo/stage3:arm64-openrc-20260921 AS builder
 WORKDIR /work
+COPY --from=portage /var/db/repos/gentoo /var/db/repos/gentoo
 
 COPY --from=vsock-builder /work/vsock-agent/podroid-vsock-agent /usr/local/bin/podroid-vsock-agent
 COPY --from=vsock-builder /work/host-bridge/podroid-hostd /usr/local/bin/podroid-hostd
