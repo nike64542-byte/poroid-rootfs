@@ -121,7 +121,7 @@ chroot "$R" pacman -S --noconfirm --needed \
     util-linux procps kmod shadow \
     openssl ca-certificates curl wget \
     xz gzip tar file rsync \
-    e2fsprogs iproute2 iputils bind net-tools \
+    e2fsprogs iproute2 iputils net-tools \
     iptables nftables dhclient \
     openssh sudo vim-minimal less \
     dbus usbutils pciutils
@@ -153,7 +153,7 @@ fi
 # Contingency (apply only if CI reports "target not found: dhclient"):
 #   chroot "$R" pacman -S --noconfirm dhcpcd
 #   chroot "$R" ln -sf /usr/bin/dhcpcd /usr/local/bin/dhclient
-if ! chroot "$R" command -v dhclient >/dev/null 2>&1; then
+if ! chroot "$R" /bin/sh -c 'command -v dhclient >/dev/null 2>&1'; then
     echo "FATAL: dhclient missing after package install" >&2
     exit 1
 fi
