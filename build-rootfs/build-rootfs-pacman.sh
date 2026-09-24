@@ -72,6 +72,13 @@ fi
 
 # ── 2. Sync + (manjaro) keyring bootstrap ───────────────────────────────────
 chroot "$R" pacman -Sy --noconfirm
+if ! chroot "$R" pacman-key --init; then
+    echo "FATAL: pacman-key initialization failed" >&2
+    exit 1
+fi
+if [ "$DISTRO" != "manjaro" ]; then
+    chroot "$R" pacman-key --populate archlinux archlinuxarm 2>/dev/null || true
+fi
 
 if [ "$DISTRO" = "manjaro" ]; then
     if ! chroot "$R" pacman -S --noconfirm --needed archlinux-keyring archlinuxarm-keyring; then
@@ -117,8 +124,30 @@ chroot "$R" pacman -S --noconfirm --needed \
     e2fsprogs iproute2 iputils bind net-tools \
     iptables nftables dhclient \
     openssh sudo vim-minimal less \
-    dbus usbutils pciutils \
-    podman crun fuse-overlayfs squashfs-tools
+    dbus usbutils pciutils
+
+if [ "$DISTRO" = "manjaro" ]; then
+    for pkg in \
+        podman-6.1.2-1-aarch64.pkg.tar.xz \
+        crun-1.29.1-1-aarch64.pkg.tar.xz \
+        fuse-overlayfs-1.18-1-aarch64.pkg.tar.xz \
+        squashfs-tools-4.7.5-1-aarch64.pkg.tar.xz; do
+        curl -fsSL --retry 3 \
+            "http://mirror.archlinuxarm.org/aarch64/extra/$pkg" \
+            -o "$R/tmp/$pkg"
+    done
+    chroot "$R" pacman -U --noconfirm \
+        /tmp/podman-6.1.2-1-aarch64.pkg.tar.xz \
+        /tmp/crun-1.29.1-1-aarch64.pkg.tar.xz \
+        /tmp/fuse-overlayfs-1.18-1-aarch64.pkg.tar.xz \
+        /tmp/squashfs-tools-4.7.5-1-aarch64.pkg.tar.xz
+    rm -f "$R"/tmp/podman-*.pkg.tar.xz "$R"/tmp/crun-*.pkg.tar.xz \
+          "$R"/tmp/fuse-overlayfs-*.pkg.tar.xz \
+          "$R"/tmp/squashfs-tools-*.pkg.tar.xz
+else
+    chroot "$R" pacman -S --noconfirm --needed \
+        podman crun fuse-overlayfs squashfs-tools
+fi
 
 # If the distro repo has no `dhclient` package, this step fails visibly above.
 # Contingency (apply only if CI reports "target not found: dhclient"):
