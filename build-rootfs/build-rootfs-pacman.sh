@@ -52,15 +52,15 @@ SigLevel = Required DatabaseOptional
 LocalFileSigLevel = Optional TrustAll
 
 [core]
-Server = https://repo.manjaro.org/repo/arm-stable/$repo/$arch
+Server = https://mirrors.manjaro.org/repo/arm-stable/$repo/$arch
 SigLevel = Optional TrustAll
 
 [extra]
-Server = https://repo.manjaro.org/repo/arm-stable/$repo/$arch
+Server = https://mirrors.manjaro.org/repo/arm-stable/$repo/$arch
 SigLevel = Optional TrustAll
 
 [community]
-Server = https://repo.manjaro.org/repo/arm-stable/$repo/$arch
+Server = https://mirrors.manjaro.org/repo/arm-stable/$repo/$arch
 SigLevel = Optional TrustAll
 EOF
 else
