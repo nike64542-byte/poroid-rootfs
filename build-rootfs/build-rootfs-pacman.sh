@@ -197,6 +197,10 @@ mkdir -p "$R/var/lib/containers/storage" "$R/run/containers/storage" \
 
 # ── 9. Copy Podroid system files (systemd variant) ──────────────────────────
 mkdir -p "$R/usr/local/bin" "$R/usr/local/libexec/podroid"
+for f in podroid-vsock-agent podroid-hostd podroid-overlay-normalize; do
+    cp "/usr/local/bin/$f" "$R/usr/local/bin/$f"
+    chmod +x "$R/usr/local/bin/$f"
+done
 for f in podroid-resize podroid-terminals podroid-login podroid-getty \
          podroid-getty-extra podroid-backup podroid-update-stats podroid-mirror; do
     cp "/work/files/usr/local/bin/$f" "$R/usr/local/bin/$f"
