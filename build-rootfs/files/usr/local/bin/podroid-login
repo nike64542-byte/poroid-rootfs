@@ -25,9 +25,5 @@ fi
 case "$_r" in ''|*[!0-9]*|0) _r=24;; esac
 case "$_c" in ''|*[!0-9]*|0) _c=80;; esac
 stty rows "$_r" cols "$_c" 2>/dev/null
-# Podroid is a passwordless VM: drop straight into a root shell on these getty
-# lines with no username/password prompt. `login -f` bypasses authentication
-# (the account password is locked in section 11 of build-rootfs.sh), so this is
-# safe and never asks for a credential. The winsize restore above still runs
-# first so TUIs (btop/htop/vim/less) get a correct terminal size.
-exec /bin/login -f root
+export HOME=/root USER=root LOGNAME=root SHELL=/bin/bash
+exec /bin/bash --login
